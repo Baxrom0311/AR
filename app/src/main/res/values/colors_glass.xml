@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Glass/Dark Theme Colors -->
+    <color name="dark_bg">#0D1B2A</color>
+    <color name="dark_surface">#1B263B</color>
+    <color name="glass_dark">#CC1B263B</color>
+    <color name="glass_light">#40FFFFFF</color>
+    <color name="glass_border">#30FFFFFF</color>
+    
+    <!-- Accent Colors -->
+    <color name="accent_cyan">#00D4FF</color>
+    <color name="accent_purple">#7B2CBF</color>
+    <color name="accent_orange">#FF6B35</color>
+    
+    <!-- Text Colors -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B0B0B0</color>
+</resources>

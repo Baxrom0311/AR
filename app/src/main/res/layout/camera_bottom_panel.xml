@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/bottomPanel"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_glass_panel"
+    android:gravity="center"
+    android:padding="12dp"
+    android:layout_margin="8dp"
+    >
+
+    <!-- 1. Place in Air Button (LEFT) -->
+    <FrameLayout
+        android:layout_width="64dp"
+        android:layout_height="80dp"
+        android:layout_weight="1">
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fab_place"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_margin="5dp"
+            android:src="@drawable/ic_3d_cube"
+            app:backgroundTint="@color/colorPrimary"
+            app:borderWidth="1dp"
+            app:rippleColor="@color/camera_menu_btn_ripple" />
+    </FrameLayout>
+
+    <!-- 2. Screenshot Button (CENTER) -->
+    <FrameLayout
+        android:layout_width="64dp"
+        android:layout_height="80dp"
+        android:layout_weight="1">
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fab_camera"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_margin="5dp"
+            android:src="@drawable/ic_camera"
+            app:backgroundTint="@color/colorPrimary"
+            app:borderWidth="1dp"
+            app:rippleColor="@color/camera_menu_btn_ripple" />
+    </FrameLayout>
+
+    <!-- 3. Clear Button (RIGHT) - initially hidden -->
+    <FrameLayout
+        android:layout_width="64dp"
+        android:layout_height="80dp"
+        android:layout_weight="1">
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/clear"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_margin="5dp"
+            android:src="@drawable/close_96"
+            android:visibility="gone"
+            app:backgroundTint="#E53935"
+            app:borderWidth="1dp"
+            app:rippleColor="#FFCDD2" />
+    </FrameLayout>
+
+</LinearLayout>

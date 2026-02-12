@@ -1,0 +1,48 @@
+<resources>
+    <string name="app_name">Astronomy AR</string>
+    <string name="measure">o\'lchash</string>
+    <string name="free_measurement">bepul o\'lchash</string>
+    <string name="square_measurments">kvadrat o\'lchovlar</string>
+    <string name="bottom_transient_bar_behavior">com.tunjid.androidx.material.behavior.BottomTransientBarBehavior</string>
+    <string name="clear">clear</string>
+
+
+    <string name="red_advise_1">Aim the camera on a textured surface (either horizontal or vertical)</string>
+    <string name="red_advise_2">"Select appropriate distance
+ (0.5m - 3m)"</string>
+    <string name="red_advise_3">Make sure the lighting is good</string>
+    <string name="red_advise_4">Move the camera farther / closer to the surface</string>
+    <string name="red_advise_5">Try to change the viewing angle</string>
+    <string name="red_advise_6">Try to recognize another surface</string>
+
+    <string name="yellow_advise_1">Press the Ruler button</string>
+    <string name="yellow_advise_2">Select width</string>
+    <string name="yellow_advise_3">Select length</string>
+    <string name="yellow_advise_4">Select height</string>
+    <string name="yellow_advise_5">Press confirm</string>
+
+    <string name="green_advise_1">Press the Search button</string>
+    <string name="green_advise_2">Press the Ruler button to reset</string>
+    <string name="camera_load_animation_text">Boshlash uchun telefonni harakatlantiring</string>
+    <string name="default_text">Ma\'lumot yo\'q</string>
+    <string name="item_category_title">KATEGORIYA</string>
+    <string name="item_model_title">MODEL NOMI</string>
+    <string name="item_summary_title">Qisqacha ma\'lumot</string>
+    <string name="item_description_title">Tavsif</string>
+    <string name="item_good_to_know_title">Bilish foydali</string>
+
+
+    <string name="welcome_message">Welcome to \nAstronomy AR</string>
+
+    <string-array name="arcore_welcome_buttons">
+        <item>@string/welcome_message</item>
+    </string-array>
+
+    <string name="info_textured">Use flat textured surfaces, as they are more visible to the app.</string>
+    <string name="info_move_short">Move the camera</string>
+    <string name="how_to_recognize_surfaces">How to recognize surfaces?</string>
+    <string name="about_app">Explore the solar system in augmented reality! View planets, moons, and stars in real 3D.</string>
+    <string name="how_app_works">It utilizes the ARCore and Sceneform libraries by google to generate  virtual surface plane  onto your floor.
+        Then the surface can be measured to generate 3d measurements and place 3D models  </string>
+
+</resources>

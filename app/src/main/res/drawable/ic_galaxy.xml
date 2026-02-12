@@ -1,0 +1,40 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <!-- Outer spiral -->
+    <path android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2z M12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="12"
+                android:centerY="12"
+                android:gradientRadius="10"
+                android:startColor="#9B59B6"
+                android:endColor="#3498DB"/>
+        </aapt:attr>
+    </path>
+    
+    <!-- Galaxy center -->
+    <path android:pathData="M12,8c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4 -1.79,-4 -4,-4z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="12"
+                android:centerY="12"
+                android:gradientRadius="4"
+                android:startColor="#FFFFFF"
+                android:endColor="#E74C3C"/>
+        </aapt:attr>
+    </path>
+    
+    <!-- Spiral arms -->
+    <path
+        android:pathData="M12,4 Q18,8 14,12 Q10,16 16,20"
+        android:strokeWidth="1"
+        android:strokeColor="#60FFFFFF"
+        android:fillColor="#00000000"/>
+</vector>
