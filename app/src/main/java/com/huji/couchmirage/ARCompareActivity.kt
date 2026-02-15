@@ -1,53 +1,63 @@
 package com.huji.couchmirage
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
-import com.google.ar.core.Anchor
-import com.google.ar.sceneform.AnchorNode
-import com.google.ar.sceneform.assets.RenderableSource
-import com.google.ar.sceneform.rendering.ModelRenderable
-import com.google.ar.sceneform.ux.ArFragment
-import com.google.ar.sceneform.ux.TransformableNode
+import com.google.ar.core.Config
+import com.google.ar.core.Plane
+import com.google.ar.core.Pose
 import com.google.firebase.storage.FirebaseStorage
 import com.huji.couchmirage.catalog.CelestialBody
 import com.huji.couchmirage.catalog.FirebaseRepository
+import com.huji.couchmirage.utils.ARScaleHelper
+import com.huji.couchmirage.utils.ModelCacheHelper
+import io.github.sceneview.ar.ARSceneView
+import io.github.sceneview.ar.node.AnchorNode
+import io.github.sceneview.math.Position
+import io.github.sceneview.math.Scale
+import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.Node
+import kotlinx.coroutines.launch
 import java.io.File
-import com.google.ar.core.Pose
-import com.google.ar.core.TrackingState
-import com.google.ar.sceneform.rendering.MaterialFactory
-import com.google.ar.sceneform.rendering.ShapeFactory
-import com.google.ar.sceneform.rendering.Color
-import com.google.ar.sceneform.Node
-import com.google.ar.sceneform.math.Vector3
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
-import com.huji.couchmirage.utils.ModelCacheHelper
-import kotlin.math.sqrt
 
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+
+@AndroidEntryPoint
 class ARCompareActivity : AppCompatActivity() {
 
     private val TAG = "ARCompareActivity"
-    private val repository = FirebaseRepository.instance
+    @Inject
+    lateinit var repository: FirebaseRepository
     
-    private var arFragment: ArFragment? = null
-    private val placedModels = mutableMapOf<Int, TransformableNode>()
-    private val placedAnchorNodes = mutableSetOf<AnchorNode>()
+    private lateinit var sceneView: ARSceneView
+    private var anchorNode: AnchorNode? = null
+    
+    private val placedModels = mutableMapOf<Int, ModelNode>()
     private val renderedModelRadii = mutableMapOf<Int, Float>()
     private val selectedBodies = mutableListOf<CelestialBody>()
-    private var currentScale = 0.67f // Default scale for progress 30
+    private var currentScale = 0.67f 
     private var activePlacementId = 0
     private var lastInsideWarningMs = 0L
     private var distanceClampToastShown = false
+    
+    private val selectedModelIndex = androidx.compose.runtime.mutableStateOf(-1)
+    private var isNodeTap = false
     
     private lateinit var loadingOverlay: FrameLayout
     private lateinit var selectedPlanetsContainer: LinearLayout
@@ -55,12 +65,6 @@ class ARCompareActivity : AppCompatActivity() {
     private lateinit var scaleSeekbar: SeekBar
     private lateinit var scaleValueText: TextView
     
-    // Reference cube (1m³)
-    private val CUBE_SIZE = 1.0f
-    private var showReferenceCube = false // Kub ko'rinmaydi, faqat masshtab uchun
-    private var cubeNode: Node? = null
-
-    // Conservative model fitting for mixed datasets (including large NASA assets)
     private val BASE_VISUAL_DIAMETER_M = 0.7f
     private val MODEL_GAP_M = 0.15f
     private val MAX_ADAPTIVE_VISUAL_DIAMETER_M = 1.0f
@@ -74,7 +78,7 @@ class ARCompareActivity : AppCompatActivity() {
     private val MIN_ALLOWED_MODEL_RADIUS_M = 0.08f
     private val INSIDE_WARNING_BUFFER_M = 0.06f
     private val INSIDE_WARNING_COOLDOWN_MS = 4500L
-
+ 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_ar_compare)
@@ -83,7 +87,6 @@ class ARCompareActivity : AppCompatActivity() {
         setupAR()
         setupListeners()
         
-        // NEW: Check for passed items from ARSelectionActivity
         checkIntentData()
     }
     
@@ -139,51 +142,96 @@ class ARCompareActivity : AppCompatActivity() {
         btnClear = findViewById(R.id.btn_clear)
         scaleSeekbar = findViewById(R.id.scale_seekbar)
         scaleValueText = findViewById(R.id.scale_value)
+        
+        findViewById<androidx.compose.ui.platform.ComposeView>(R.id.planet_info_card_view).apply {
+            setContent {
+                val index = selectedModelIndex.value
+                val body = if (index != -1 && index < selectedBodies.size) selectedBodies[index] else null
+                
+                com.huji.couchmirage.ui.components.PlanetInfoCard(
+                    celestialBody = body,
+                    isVisible = body != null
+                )
+            }
+        }
     }
 
     private fun setupAR() {
-        arFragment = supportFragmentManager.findFragmentById(R.id.ar_fragment) as? ArFragment
+        sceneView = findViewById(R.id.ar_fragment)
         
-        // Tap on plane - place models
-        arFragment?.setOnTapArPlaneListener { hitResult, _, _ ->
-            if (selectedBodies.isNotEmpty()) {
-                val anchor = hitResult.createAnchor()
-                placeAllModels(anchor)
-            } else {
-                Toast.makeText(this, "Avval sayyora tanlang", Toast.LENGTH_SHORT).show()
-            }
+        sceneView.configureSession { _, config ->
+            config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
+            config.depthMode = Config.DepthMode.AUTOMATIC
+            config.focusMode = Config.FocusMode.AUTO
         }
         
-        // Also allow placing in air with a button
-        arFragment?.arSceneView?.scene?.addOnUpdateListener { _ ->
-            monitorInsideAnyModel()
+        sceneView.setOnTouchListener { _, event ->
+             if (event.action == MotionEvent.ACTION_UP) {
+                 // Reset flag
+                 isNodeTap = false
+                 
+                 // Return false to allow sceneView to process the touch (and trigger node listeners)
+                 // We post the placement logic to run AFTER the node listeners have fired.
+                 sceneView.post {
+                     if (isNodeTap) return@post
+                     
+                     // If selection was active and we tapped empty space, deselect
+                     if (selectedModelIndex.value != -1) {
+                         selectedModelIndex.value = -1
+                         return@post
+                     }
+
+                     val frame = sceneView.frame
+                     val hitResult = frame?.hitTest(event)?.firstOrNull()
+
+                    if (activePlacementId == -1) {
+                         activePlacementId = 0
+                    }
+
+                    if (selectedBodies.isEmpty()) {
+                        Toast.makeText(this, "Avval sayyora tanlang", Toast.LENGTH_SHORT).show()
+                    } else if (hitResult != null) {
+                         if (anchorNode != null) {
+                              clearAllModels()
+                         }
+                         
+                         val hitAnchor = hitResult.createAnchor()
+                         val newAnchorNode = AnchorNode(sceneView.engine, hitAnchor)
+                         
+                         sceneView.addChildNode(newAnchorNode)
+                         anchorNode = newAnchorNode
+                         
+                         placeAllModels(isAir = false)
+                    }
+                 }
+                 return@setOnTouchListener false
+             }
+             return@setOnTouchListener false // Allow other events (DOWN/MOVE) to exist
         }
     }
     
-    // Place in air (no plane required) - 1 meter in front of camera
     private fun placeInAir() {
-        val fragment = arFragment ?: return
-        val frame = fragment.arSceneView.arFrame ?: return
-        
-        if (frame.camera.trackingState != TrackingState.TRACKING) {
-            Toast.makeText(this, "Kamerani harakatga keltiring", Toast.LENGTH_SHORT).show()
-            return
+        val session = sceneView.session ?: return
+        if (session.getAllTrackables(Plane::class.java).isEmpty()) {
+             Toast.makeText(this, "Kamerani harakatga keltiring", Toast.LENGTH_SHORT).show()
         }
-        
-        if (selectedBodies.isEmpty()) {
-            Toast.makeText(this, "Avval sayyora tanlang", Toast.LENGTH_SHORT).show()
-            return
+
+        if (anchorNode != null) {
+             clearAllModels()
         }
+
+        val frame = sceneView.frame ?: return
+        val camera = frame.camera
+        val pose = camera.pose.compose(Pose.makeTranslation(0f, 0f, -AIR_PLACEMENT_FORWARD_M))
+        val anchor = session.createAnchor(pose)
         
-        // Create anchor in front of camera (in the air)
-        val cameraPose = frame.camera.pose
-        val placementPose = cameraPose.compose(Pose.makeTranslation(0f, 0f, -AIR_PLACEMENT_FORWARD_M))
+        val newAnchorNode = AnchorNode(sceneView.engine, anchor)
         
-        val anchor = fragment.arSceneView.session?.createAnchor(placementPose)
-        if (anchor != null) {
-            placeAllModels(anchor)
-            Toast.makeText(this, "Sayyoralar havoda joylashtirildi!", Toast.LENGTH_SHORT).show()
-        }
+        sceneView.addChildNode(newAnchorNode)
+        anchorNode = newAnchorNode
+        
+        placeAllModels(isAir = true)
+        Toast.makeText(this, "Modellar fazoga joylashtirildi!", Toast.LENGTH_SHORT).show()
     }
 
     private fun setupListeners() {
@@ -199,15 +247,12 @@ class ARCompareActivity : AppCompatActivity() {
             showPlanetSelector()
         }
         
-        // Air placement button for planets in space
         findViewById<Button>(R.id.btn_place_in_air)?.setOnClickListener {
             placeInAir()
         }
         
         scaleSeekbar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                // Modified range: 0.01x to 2.0x to handle very large models
-                // Default (progress=30) will be around 0.6x
                 val minScale = 0.01f
                 val maxScale = 2.0f
                 currentScale = minScale + (progress / 100f * (maxScale - minScale))
@@ -218,11 +263,9 @@ class ARCompareActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
     }
-
+    
     private fun showPlanetSelector() {
         loadingOverlay.visibility = View.VISIBLE
-        
-        // Load all celestial bodies using the new unified method
         repository.getAllCelestialBodies(
             onSuccess = { allBodies ->
                 runOnUiThread {
@@ -273,10 +316,8 @@ class ARCompareActivity : AppCompatActivity() {
         
         for (body in selectedBodies) {
             val chipView = LayoutInflater.from(this).inflate(R.layout.item_planet_chip, selectedPlanetsContainer, false)
-            
             chipView.findViewById<TextView>(R.id.chip_name).text = body.name
             
-            // Load image
             if (body.images.isNotEmpty()) {
                 val imageView = chipView.findViewById<ImageView>(R.id.chip_image)
                 Glide.with(this).load(body.images[0]).into(imageView)
@@ -291,18 +332,19 @@ class ARCompareActivity : AppCompatActivity() {
         }
     }
 
-    private fun placeAllModels(anchor: Anchor) {
-        if (selectedBodies.isEmpty()) return
+    private fun placeAllModels(isAir: Boolean) {
+        if (selectedBodies.isEmpty() || anchorNode == null) return
 
-        // Invalidate any previous async placement flow and clear old scene nodes first.
         activePlacementId += 1
         val placementId = activePlacementId
         distanceClampToastShown = false
-        clearAllModels(invalidatePlacement = false)
+        
+        // Clear children
+        anchorNode?.childNodes?.forEach { anchorNode?.removeChildNode(it) }
+        placedModels.clear()
         
         loadingOverlay.visibility = View.VISIBLE
         
-        // Use normalized radii to keep placement stable when DB values are missing/invalid.
         val normalizedRadii = selectedBodies.map { normalizedRadius(it) }
         val maxRadius = normalizedRadii.maxOrNull() ?: 1.0
         
@@ -311,7 +353,7 @@ class ARCompareActivity : AppCompatActivity() {
         
         for ((index, body) in selectedBodies.withIndex()) {
             val bodyRadius = normalizedRadii.getOrElse(index) { 1.0 }
-            loadAndPlaceModel(anchor, body, index, bodyRadius, maxRadius, placementId) {
+            loadAndPlaceModel(body, index, bodyRadius, maxRadius, placementId, isAir) {
                 loadedCount++
                 if (loadedCount == totalCount) {
                     runOnUiThread {
@@ -326,12 +368,12 @@ class ARCompareActivity : AppCompatActivity() {
     }
 
     private fun loadAndPlaceModel(
-        anchor: Anchor,
         body: CelestialBody,
         index: Int,
         bodyRadius: Double,
         maxRadius: Double,
         placementId: Int,
+        isAir: Boolean,
         onComplete: () -> Unit
     ) {
         if (placementId != activePlacementId) {
@@ -339,48 +381,40 @@ class ARCompareActivity : AppCompatActivity() {
             return
         }
 
-        if (body.modelUrl.isEmpty()) {
+        if (body.modelUrl.isNullOrEmpty()) {
             onComplete()
             return
         }
 
         val modelCacheDir = File(cacheDir, "models").apply { mkdirs() }
-        val localFile = File(modelCacheDir, ModelCacheHelper.buildCacheFileName(body.modelUrl))
+        val localFile = File(modelCacheDir, ModelCacheHelper.buildCacheFileName(body.modelUrl!!))
 
         if (localFile.exists()) {
-            buildAndPlaceModel(localFile, anchor, index, bodyRadius, maxRadius, placementId, onComplete)
+            buildAndPlaceModel(localFile, index, placementId, isAir, onComplete)
         } else {
             val storage = FirebaseStorage.getInstance()
             val ref = try {
                 when {
-                    body.modelUrl.startsWith("gs://") ||
-                        body.modelUrl.startsWith("https://firebasestorage.googleapis.com/") ->
-                        storage.getReferenceFromUrl(body.modelUrl)
-                    body.modelUrl.startsWith("http") ->
+                    body.modelUrl!!.startsWith("gs://") ||
+                        body.modelUrl!!.startsWith("https://firebasestorage.googleapis.com/") ->
+                        storage.getReferenceFromUrl(body.modelUrl!!)
+                    body.modelUrl!!.startsWith("http") ->
                         throw IllegalArgumentException("Only Firebase Storage URLs are supported")
                     else ->
-                        storage.reference.child(body.modelUrl.trimStart('/'))
+                        storage.reference.child(body.modelUrl!!.trimStart('/'))
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Invalid model URL for ${body.name}: ${body.modelUrl}", e)
-                runOnUiThread {
-                    Toast.makeText(this, "Noto'g'ri model URL: ${body.name}", Toast.LENGTH_SHORT).show()
-                }
                 onComplete()
                 return
             }
 
             ref.getFile(localFile)
                 .addOnSuccessListener {
-                    buildAndPlaceModel(localFile, anchor, index, bodyRadius, maxRadius, placementId, onComplete)
+                    buildAndPlaceModel(localFile, index, placementId, isAir, onComplete)
                 }
                 .addOnFailureListener { e ->
                     Log.e(TAG, "Failed to download model", e)
-                    runOnUiThread {
-                        if (placementId == activePlacementId) {
-                            Toast.makeText(this, "Model yuklanmadi: ${body.name}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
                     onComplete()
                 }
         }
@@ -388,167 +422,169 @@ class ARCompareActivity : AppCompatActivity() {
 
     private fun buildAndPlaceModel(
         file: File,
-        anchor: Anchor,
         index: Int,
-        bodyRadius: Double,
-        maxRadius: Double,
         placementId: Int,
-        onComplete: () -> Unit
+        isAir: Boolean,
+        onComplete: () -> Unit = {}
     ) {
-        val sourceType = if (file.extension.equals("gltf", ignoreCase = true)) {
-            RenderableSource.SourceType.GLTF2
-        } else {
-            RenderableSource.SourceType.GLB
+        val root = anchorNode
+        if (root == null || placementId != activePlacementId) {
+            onComplete()
+            return
         }
-        
-        val renderableSource = RenderableSource.builder()
-            .setSource(this, Uri.fromFile(file), sourceType)
-            .setRecenterMode(RenderableSource.RecenterMode.ROOT)
-            .build()
-        
-        ModelRenderable.builder()
-            .setSource(this, renderableSource)
-            .build()
-            .thenAccept { renderable ->
-                runOnUiThread {
-                    if (placementId != activePlacementId) {
-                        onComplete()
-                        return@runOnUiThread
+
+        lifecycleScope.launch {
+            try {
+                val modelInstance = sceneView.modelLoader.createModelInstance(file)
+                if (modelInstance != null) {
+                    val modelNode = ModelNode(
+                        modelInstance = modelInstance,
+                        scaleToUnits = null
+                    )
+                    
+                    modelNode.isShadowCaster = !isAir
+                    modelNode.isShadowReceiver = !isAir
+                    modelNode.isTouchable = true
+                    
+                    modelNode.onSingleTapConfirmed = {
+                        isNodeTap = true
+                        selectedModelIndex.value = index
+                        true
                     }
-                    placeModelInScene(renderable, anchor, index, bodyRadius, maxRadius, placementId)
+                    
+                    root.addChildNode(modelNode)
+                    placedModels[index] = modelNode
+                    
+                    updateLayout()
                     onComplete()
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating model node", e)
+                onComplete()
             }
-            .exceptionally { e ->
-                Log.e(TAG, "Failed to build model", e)
-                runOnUiThread { onComplete() }
-                null
-            }
+        }
     }
 
-    private fun placeModelInScene(
-        renderable: ModelRenderable,
-        anchor: Anchor,
-        index: Int,
-        bodyRadius: Double,
-        maxRadius: Double,
-        placementId: Int
-    ) {
-        if (placementId != activePlacementId) return
-        val fragment = arFragment ?: return
-        
-        val anchorNode = AnchorNode(anchor)
-        
-        // Create reference cube on first model placement
-        if (index == 0 && showReferenceCube && cubeNode == null) {
-            createReferenceCube(anchorNode)
-        }
-        
-        val node = TransformableNode(fragment.transformationSystem)
-        
-        node.renderable = renderable
-
-        node.scaleController.isEnabled = true
-        node.translationController.isEnabled = true
-        node.rotationController.isEnabled = true
-
-        val modelExtent = extractModelExtent(renderable)
+    private fun updateLayout() {
+        val trueRadii = selectedBodies.map { normalizedRadius(it) }
+        val maxRadius = trueRadii.maxOrNull() ?: 1.0
         val baseDiameter = adaptiveBaseVisualDiameter()
-        val radiusRatio = safeRadiusRatio(bodyRadius, maxRadius)
-        val targetDiameter = baseDiameter * radiusRatio * currentScale
-        val initialScale = computeSafeNodeScale(targetDiameter, modelExtent)
-        val finalScale = clampScaleByCameraDistance(anchor, modelExtent, initialScale)
+        val modelGap = adaptiveModelGap()
 
-        node.localScale = Vector3(finalScale, finalScale, finalScale)
-        val maxScaleByDistance = maxScaleAllowedByCameraDistance(anchor, modelExtent)
-        node.scaleController.minScale = maxOf(MIN_NODE_SCALE, finalScale * 0.2f)
-        node.scaleController.maxScale = minOf(maxOf(finalScale * 15.0f, 1.5f), maxScaleByDistance)
-        
-        // Offset position for multiple models - spread them out
-        // Store in map using index
-        placedModels[index] = node
-        node.setParent(anchorNode)
-        fragment.arSceneView.scene.addChild(anchorNode)
-        placedAnchorNodes.add(anchorNode)
+        var totalWidth = 0f
+        val calculatedRadii = FloatArray(selectedBodies.size)
+        val calculatedScales = FloatArray(selectedBodies.size)
 
-        if (finalScale + 0.0001f < initialScale && !distanceClampToastShown) {
-            distanceClampToastShown = true
-            Toast.makeText(this, "Model juda katta edi, avtomatik kichraytirildi", Toast.LENGTH_SHORT).show()
+        for (i in selectedBodies.indices) {
+            val node = placedModels[i]
+            if (node == null) {
+                calculatedRadii[i] = 0f
+                continue
+            }
+            
+            val trueRadius = trueRadii[i]
+            val radiusRatio = safeRadiusRatio(trueRadius, maxRadius)
+            val targetDiameter = baseDiameter * radiusRatio * currentScale
+            
+            val modelExtent = ARScaleHelper.extractModelExtent(node)
+            
+            var finalScale = ARScaleHelper.computeSafeScale(
+                modelExtent = modelExtent,
+                targetDiameter = targetDiameter,
+                minScale = MIN_NODE_SCALE,
+                maxScale = MAX_NODE_SCALE,
+                fallbackScale = FALLBACK_NODE_SCALE,
+                invalidExtentThreshold = INVALID_EXTENT_THRESHOLD
+            )
+            
+             val cameraDistance = cameraDistanceToNode(node)
+             if (cameraDistance != null) {
+                val maxAllowedRadius = maxOf(cameraDistance - CAMERA_MODEL_SAFETY_MARGIN_M, MIN_ALLOWED_MODEL_RADIUS_M)
+                val approxRenderedRadius = if (modelExtent > INVALID_EXTENT_THRESHOLD) modelExtent * finalScale / 2f else targetDiameter / 2f
+                
+                if (approxRenderedRadius > maxAllowedRadius && approxRenderedRadius > 0f) {
+                     val ratio = maxAllowedRadius / approxRenderedRadius
+                     finalScale = maxOf(finalScale * ratio, MIN_NODE_SCALE)
+                }
+             }
+
+            calculatedScales[i] = finalScale
+            
+            val renderedDiameter = if (modelExtent > INVALID_EXTENT_THRESHOLD) {
+                modelExtent * finalScale
+            } else {
+                targetDiameter
+            }
+            val renderedRadius = maxOf(renderedDiameter / 2f, MIN_ALLOWED_MODEL_RADIUS_M)
+            calculatedRadii[i] = renderedRadius
+            
+            if (i > 0) totalWidth += modelGap
+            totalWidth += renderedRadius * 2
         }
 
-        // Update scales and positions for ALL models (dynamic layout)
-        updateLayout()
+        var currentX = -totalWidth / 2f
         
-        // placedModels.add(node) - REMOVED (using Map now)
+        for (i in selectedBodies.indices) {
+            val node = placedModels[i] ?: continue
+            val radius = calculatedRadii[i]
+            
+            if (radius > 0f) {
+                val scale = calculatedScales[i]
+                node.scale = Scale(scale)
+                
+                currentX += radius
+                node.position = Position(currentX, 0f, 0f)
+                
+                renderedModelRadii[i] = radius
+                currentX += radius + modelGap
+            }
+        }
     }
     
-    // Create semi-transparent reference cube (1m³)
-    private fun createReferenceCube(anchorNode: AnchorNode) {
-        MaterialFactory.makeTransparentWithColor(this, Color(0.3f, 0.7f, 1.0f, 0.12f))
-            .thenAccept { material ->
-                val cubeRenderable = ShapeFactory.makeCube(
-                    Vector3(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
-                    Vector3.zero(),
-                    material
-                )
-                
-                runOnUiThread {
-                    cubeNode = Node()
-                    cubeNode?.renderable = cubeRenderable
-                    cubeNode?.setParent(anchorNode)
-                    cubeNode?.localPosition = Vector3(0f, CUBE_SIZE / 2f, 0f)
-                }
-            }
-    }
-
-    private fun extractModelExtent(renderable: ModelRenderable): Float {
-        val shape = renderable.collisionShape ?: return 0f
-        return when (shape) {
-            is com.google.ar.sceneform.collision.Box -> {
-                val extents = shape.extents
-                maxOf(extents.x, extents.y, extents.z)
-            }
-            is com.google.ar.sceneform.collision.Sphere -> shape.radius * 2.0f
-            else -> 0f
-        }
-    }
-
-    private fun computeSafeNodeScale(targetDiameter: Float, modelExtent: Float): Float {
-        if (!modelExtent.isFinite() || modelExtent <= INVALID_EXTENT_THRESHOLD) {
-            return FALLBACK_NODE_SCALE
-        }
-        return (targetDiameter / modelExtent).coerceIn(MIN_NODE_SCALE, MAX_NODE_SCALE)
-    }
-
-    private fun clampScaleByCameraDistance(anchor: Anchor, modelExtent: Float, rawScale: Float): Float {
-        if (modelExtent <= INVALID_EXTENT_THRESHOLD || !modelExtent.isFinite()) return rawScale
-        val maxScale = maxScaleAllowedByCameraDistance(anchor, modelExtent)
-        return rawScale.coerceAtMost(maxScale).coerceAtLeast(MIN_NODE_SCALE)
-    }
-
-    private fun maxScaleAllowedByCameraDistance(anchor: Anchor, modelExtent: Float): Float {
-        if (modelExtent <= INVALID_EXTENT_THRESHOLD || !modelExtent.isFinite()) return MAX_NODE_SCALE
-        val distance = cameraDistanceToAnchor(anchor) ?: return MAX_NODE_SCALE
-        val maxRadius = maxOf(distance - CAMERA_MODEL_SAFETY_MARGIN_M, MIN_ALLOWED_MODEL_RADIUS_M)
-        val maxDiameter = maxRadius * 2f
-        return (maxDiameter / modelExtent).coerceIn(MIN_NODE_SCALE, MAX_NODE_SCALE)
-    }
-
-    private fun cameraDistanceToAnchor(anchor: Anchor): Float? {
-        val frame = arFragment?.arSceneView?.arFrame ?: return null
-        val camera = frame.camera
-        if (camera.trackingState != TrackingState.TRACKING) return null
-        val cameraPosition = camera.pose.translation
-        val anchorPosition = anchor.pose.translation
-        return distance(
-            cameraPosition[0], cameraPosition[1], cameraPosition[2],
-            anchorPosition[0], anchorPosition[1], anchorPosition[2]
+    private fun cameraDistanceToNode(node: Node): Float? {
+        val cameraPosition = sceneView.cameraNode.worldPosition
+        val nodePosition = node.worldPosition
+        return ARScaleHelper.distance(
+            cameraPosition.x, cameraPosition.y, cameraPosition.z,
+            nodePosition.x, nodePosition.y, nodePosition.z
         )
     }
 
+    private fun monitorInsideAnyModel() {
+        if (placedModels.isEmpty()) return
 
+        for ((index, node) in placedModels) {
+            val radius = renderedModelRadii[index] ?: continue
+            val cameraDistance = cameraDistanceToNode(node) ?: continue
+            val insideThreshold = maxOf(radius - INSIDE_WARNING_BUFFER_M, MIN_ALLOWED_MODEL_RADIUS_M)
+            if (cameraDistance < insideThreshold) {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastInsideWarningMs >= INSIDE_WARNING_COOLDOWN_MS) {
+                    lastInsideWarningMs = now
+                    Toast.makeText(this, "Siz model ichida qolib ketdingiz, orqaga yuring", Toast.LENGTH_SHORT).show()
+                }
+                return
+            }
+        }
+    }
+
+    private fun clearAllModels(invalidatePlacement: Boolean = true) {
+        if (invalidatePlacement) {
+            activePlacementId += 1
+        }
+        
+        anchorNode?.let { 
+             sceneView.removeChildNode(it)
+             it.destroy()
+        }
+        anchorNode = null
+        
+        placedModels.clear()
+        renderedModelRadii.clear()
+        selectedModelIndex.value = -1
+        btnClear.visibility = View.GONE
+    }
     
-    // Helper to get estimated radius if DB fails
     private fun estimateRadius(name: String): Double {
         return when (name.lowercase().trim()) {
             "sun", "quyosh" -> 696340.0
@@ -581,132 +617,21 @@ class ARCompareActivity : AppCompatActivity() {
     }
 
     private fun adaptiveBaseVisualDiameter(): Float {
-        val factor = screenScaleFactor()
-        return (BASE_VISUAL_DIAMETER_M * factor).coerceIn(
-            BASE_VISUAL_DIAMETER_M,
-            MAX_ADAPTIVE_VISUAL_DIAMETER_M
+        return ARScaleHelper.adaptiveTargetSize(
+            baseSize = BASE_VISUAL_DIAMETER_M,
+            maxAdaptiveSize = MAX_ADAPTIVE_VISUAL_DIAMETER_M,
+            smallestScreenWidthDp = resources.configuration.smallestScreenWidthDp
         )
     }
 
     private fun adaptiveModelGap(): Float {
-        val factor = screenScaleFactor()
-        return (MODEL_GAP_M * factor).coerceIn(MODEL_GAP_M, MAX_ADAPTIVE_MODEL_GAP_M)
-    }
-
-    private fun screenScaleFactor(): Float {
-        return when (resources.configuration.smallestScreenWidthDp) {
-            in 960..Int.MAX_VALUE -> 1.35f
-            in 840..959 -> 1.25f
-            in 720..839 -> 1.18f
-            in 600..719 -> 1.12f
-            else -> 1.0f
-        }
-    }
-    
-    private fun updateLayout() {
-        val trueRadii = selectedBodies.map { normalizedRadius(it) }
-        val maxRadius = trueRadii.maxOrNull() ?: 1.0
-        val baseDiameter = adaptiveBaseVisualDiameter()
-        val modelGap = adaptiveModelGap()
-
-        var cursor = 0f
-
-        for (i in selectedBodies.indices) {
-            val node = placedModels[i] ?: continue
-            val renderable = node.renderable as? ModelRenderable ?: continue
-            val trueRadius = trueRadii[i]
-            val radiusRatio = safeRadiusRatio(trueRadius, maxRadius)
-            val targetDiameter = baseDiameter * radiusRatio * currentScale
-            val modelExtent = extractModelExtent(renderable)
-            var finalScale = computeSafeNodeScale(targetDiameter, modelExtent)
-            node.localScale = Vector3(finalScale, finalScale, finalScale)
-
-            var renderedDiameter = if (modelExtent > INVALID_EXTENT_THRESHOLD) {
-                modelExtent * finalScale
-            } else {
-                targetDiameter
-            }
-            var renderedRadius = maxOf(renderedDiameter / 2f, MIN_ALLOWED_MODEL_RADIUS_M)
-
-            if (i > 0) {
-                cursor += modelGap
-            }
-            cursor += renderedRadius
-            node.localPosition = Vector3(cursor, CUBE_SIZE / 2f, 0f)
-            cursor += renderedRadius
-
-            val cameraDistance = cameraDistanceToNode(node)
-            if (cameraDistance != null) {
-                val maxAllowedRadius = maxOf(cameraDistance - CAMERA_MODEL_SAFETY_MARGIN_M, MIN_ALLOWED_MODEL_RADIUS_M)
-                if (renderedRadius > maxAllowedRadius && renderedRadius > 0f) {
-                    val ratio = maxAllowedRadius / renderedRadius
-                    finalScale = maxOf(finalScale * ratio, MIN_NODE_SCALE)
-                    node.localScale = Vector3(finalScale, finalScale, finalScale)
-                    renderedDiameter = if (modelExtent > INVALID_EXTENT_THRESHOLD) {
-                        modelExtent * finalScale
-                    } else {
-                        targetDiameter * ratio
-                    }
-                    renderedRadius = maxOf(renderedDiameter / 2f, MIN_ALLOWED_MODEL_RADIUS_M)
-                }
-            }
-
-            renderedModelRadii[i] = renderedRadius
-        }
-    }
-
-    private fun cameraDistanceToNode(node: TransformableNode): Float? {
-        val scene = arFragment?.arSceneView?.scene ?: return null
-        val cameraPosition = scene.camera.worldPosition
-        val nodePosition = node.worldPosition
-        return distance(
-            cameraPosition.x, cameraPosition.y, cameraPosition.z,
-            nodePosition.x, nodePosition.y, nodePosition.z
+        return ARScaleHelper.adaptiveTargetSize(
+            baseSize = MODEL_GAP_M,
+            maxAdaptiveSize = MAX_ADAPTIVE_MODEL_GAP_M,
+            smallestScreenWidthDp = resources.configuration.smallestScreenWidthDp
         )
     }
-
-    private fun monitorInsideAnyModel() {
-        if (placedModels.isEmpty()) return
-
-        for ((index, node) in placedModels) {
-            val radius = renderedModelRadii[index] ?: continue
-            val cameraDistance = cameraDistanceToNode(node) ?: continue
-            val insideThreshold = maxOf(radius - INSIDE_WARNING_BUFFER_M, MIN_ALLOWED_MODEL_RADIUS_M)
-            if (cameraDistance < insideThreshold) {
-                val now = SystemClock.elapsedRealtime()
-                if (now - lastInsideWarningMs >= INSIDE_WARNING_COOLDOWN_MS) {
-                    lastInsideWarningMs = now
-                    Toast.makeText(this, "Siz model ichida qolib ketdingiz, orqaga yuring", Toast.LENGTH_SHORT).show()
-                }
-                return
-            }
-        }
-    }
-
-    private fun distance(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float): Float {
-        val dx = x1 - x2
-        val dy = y1 - y2
-        val dz = z1 - z2
-        return sqrt(dx * dx + dy * dy + dz * dz)
-    }
-
-    private fun clearAllModels(invalidatePlacement: Boolean = true) {
-        if (invalidatePlacement) {
-            activePlacementId += 1
-        }
-
-        for (anchorNode in placedAnchorNodes.toList()) {
-            anchorNode.anchor?.detach()
-            arFragment?.arSceneView?.scene?.removeChild(anchorNode)
-        }
-        placedModels.clear()
-        renderedModelRadii.clear()
-        placedAnchorNodes.clear()
-        cubeNode = null // Reset cube reference
-        btnClear.visibility = View.GONE
-    }
-
-    // Inner adapter class
+    
     inner class PlanetSelectorAdapter(
         private val bodies: List<CelestialBody>,
         private val selectedIds: MutableSet<String>,
@@ -720,7 +645,7 @@ class ARCompareActivity : AppCompatActivity() {
             val checkbox: CheckBox = view.findViewById(R.id.planet_checkbox)
         }
 
-        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): ViewHolder {
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
             val view = LayoutInflater.from(parent.context)
                 .inflate(R.layout.item_planet_selector, parent, false)
             return ViewHolder(view)
@@ -748,5 +673,12 @@ class ARCompareActivity : AppCompatActivity() {
         }
 
         override fun getItemCount() = bodies.size
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        placedModels.clear()
+        renderedModelRadii.clear()
+        anchorNode = null
     }
 }

@@ -6,6 +6,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.PersistentCacheSettings
 import com.google.firebase.firestore.Query
+import com.huji.couchmirage.utils.Constants
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -60,8 +61,8 @@ class FirebaseRepository {
     
     // Get Categories
     fun getCategories(onSuccess: (List<Category>) -> Unit, onError: (Exception) -> Unit) {
-        db.collection("categories")
-            .orderBy("order", Query.Direction.ASCENDING)
+        db.collection(Constants.COLLECTION_CATEGORIES)
+            .orderBy(Constants.FIELD_ORDER, Query.Direction.ASCENDING)
             .get()
             .addOnSuccessListener { documents ->
                 val categories = documents.mapNotNull { doc ->
@@ -88,8 +89,8 @@ class FirebaseRepository {
         onSuccess: (List<CelestialBody>) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        db.collection("celestial_bodies")
-            .whereEqualTo("category", categoryId)
+        db.collection(Constants.COLLECTION_CELESTIAL_BODIES)
+            .whereEqualTo(Constants.FIELD_CATEGORY, categoryId)
             .get()
             .addOnSuccessListener { documents ->
                 val bodies = documents.mapNotNull { doc ->
@@ -115,7 +116,7 @@ class FirebaseRepository {
         onSuccess: (CelestialBody) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        db.collection("celestial_bodies")
+        db.collection(Constants.COLLECTION_CELESTIAL_BODIES)
             .document(bodyId)
             .get()
             .addOnSuccessListener { document ->
@@ -151,15 +152,15 @@ class FirebaseRepository {
     ) {
         // Convert singular to plural to match Firebase category values
         val categoryValue = when(type.lowercase()) {
-            "planet" -> "planets"
-            "star" -> "stars"
-            "moon" -> "moons"
-            "other" -> "others"
+            Constants.TYPE_PLANET -> "planets"
+            Constants.TYPE_STAR -> "stars"
+            Constants.TYPE_MOON -> "moons"
+            Constants.TYPE_OTHER -> "others"
             else -> type + "s" // fallback: add 's'
         }
         
-        db.collection("celestial_bodies")
-            .whereEqualTo("category", categoryValue)
+        db.collection(Constants.COLLECTION_CELESTIAL_BODIES)
+            .whereEqualTo(Constants.FIELD_CATEGORY, categoryValue)
             .get()
             .addOnSuccessListener { documents ->
                 val bodies = documents.mapNotNull { doc ->
@@ -180,11 +181,8 @@ class FirebaseRepository {
     }
     
     // Get ALL celestial bodies from all categories
-    fun getAllCelestialBodies(
-        onSuccess: (List<CelestialBody>) -> Unit,
-        onError: (Exception) -> Unit
-    ) {
-        db.collection("celestial_bodies")
+    fun getAllCelestialBodies(onSuccess: (List<CelestialBody>) -> Unit, onError: (Exception) -> Unit) {
+        db.collection(Constants.COLLECTION_CELESTIAL_BODIES)
             .get()
             .addOnSuccessListener { documents ->
                 val bodies = documents.mapNotNull { doc ->
@@ -222,7 +220,7 @@ class FirebaseRepository {
         val failed = AtomicBoolean(false)
 
         chunks.forEach { chunk ->
-            db.collection("celestial_bodies")
+            db.collection(Constants.COLLECTION_CELESTIAL_BODIES)
                 .whereIn(FieldPath.documentId(), chunk)
                 .get()
                 .addOnSuccessListener { documents ->

@@ -27,7 +27,7 @@
                 android:background="@color/colorPrimaryDark">
 
                 <!-- 3D Model Preview -->
-                <com.google.ar.sceneform.SceneView
+                <io.github.sceneview.SceneView
                     android:id="@+id/model_scene_view"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent" />
@@ -55,6 +55,19 @@
                     app:fabSize="mini"
                     app:layout_constraintTop_toTopOf="parent"
                     app:layout_constraintEnd_toEndOf="parent" />
+
+                <!-- Back Button -->
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/back_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="16dp"
+                    android:src="@drawable/ic_arrow_back_24dp"
+                    app:backgroundTint="#40000000"
+                    app:tint="@android:color/white"
+                    app:fabSize="mini"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintStart_toStartOf="parent" />
 
                 <!-- 3D Trigger -->
                 <LinearLayout

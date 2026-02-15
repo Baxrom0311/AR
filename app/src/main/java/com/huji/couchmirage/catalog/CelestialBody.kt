@@ -1,32 +1,39 @@
 package com.huji.couchmirage.catalog
 
 import android.os.Parcelable
+import com.google.firebase.firestore.PropertyName
 import kotlinx.parcelize.Parcelize
 
 @Parcelize
 data class CelestialBody(
     val id: String = "",
     val name: String = "",
-    val category: String = "", // planets, stars, moons
-    val modelUrl: String = "",
-    val images: List<String> = emptyList(),
-    val arScale: Float = 1.0f,
-    
-    // Astronomical data (raduis - Firebase'dagi typo saqlab qolindi)
-    val raduis: Double = 0.0,
-    val mass: String = "",
-    val orbitalPeriod: Int? = null,
-    val temperature: String = "",
-    val atmosphere: String = "",
-    val moons: Int? = null,
-    
-    // Educational data
+    val category: String = "",
     val description: String = "",
-    val facts: List<String> = emptyList(),
+
+    // Scientific data
+    val mass: String? = null,
+    val temperature: String? = null,
+    val atmosphere: String? = null,
+    val orbitalPeriod: Int = 0,
+    val moons: Int = 0,
+
+    // Astronomical data — @PropertyName maps Firebase "raduis" → radius
+    @get:PropertyName("raduis") @set:PropertyName("raduis")
+    var radius: Double = 0.0,
+
+    // Educational data
     val discoveryDate: String? = null,
-    val namedAfter: String? = null
-) : Parcelable {
-    // Alias for new code readability while preserving legacy Firestore field name.
-    val radius: Double
-        get() = raduis
-}
+    val namedAfter: String? = null,
+    val facts: List<String> = emptyList(),
+
+    // Additional fields (synced with admin-panel)
+    val parentPlanet: String? = null,
+    val spectralType: String? = null,
+    val luminosity: String? = null,
+    val age: String? = null,
+
+    // Media
+    val images: List<String> = emptyList(),
+    val modelUrl: String? = null
+) : Parcelable

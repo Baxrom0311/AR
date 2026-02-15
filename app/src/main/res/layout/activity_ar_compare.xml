@@ -5,10 +5,9 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- AR Fragment Container -->
-    <fragment
+    <!-- AR SceneView -->
+    <io.github.sceneview.ar.ARSceneView
         android:id="@+id/ar_fragment"
-        android:name="com.google.ar.sceneform.ux.ArFragment"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
@@ -52,6 +51,16 @@
             app:tint="@android:color/white" />
 
     </LinearLayout>
+
+    <!-- Planet Info Card (Compose) -->
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/planet_info_card_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        app:layout_constraintTop_toBottomOf="@id/top_bar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 
     <!-- Bottom Panel with Planet Selector -->
     <LinearLayout
