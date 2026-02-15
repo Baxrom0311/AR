@@ -16,7 +16,6 @@ object FavoritesManager {
         val favorites = getFavorites(context).toMutableSet()
         favorites.add(id)
         prefs.edit().putStringSet(KEY_FAVORITES, favorites).apply()
-        android.util.Log.d("FavoritesManager", "Added favorite: $id. Total: ${favorites.size}")
     }
 
     fun removeFavorite(context: Context, id: String) {
@@ -24,7 +23,6 @@ object FavoritesManager {
         val favorites = getFavorites(context).toMutableSet()
         favorites.remove(id)
         prefs.edit().putStringSet(KEY_FAVORITES, favorites).apply()
-        android.util.Log.d("FavoritesManager", "Removed favorite: $id. Total: ${favorites.size}")
     }
 
     fun isFavorite(context: Context, id: String): Boolean {

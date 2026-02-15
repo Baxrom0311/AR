@@ -1,44 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Glassmorphism Primary Colors -->
-    <color name="colorPrimary">#00D4FF</color>
-    <color name="colorPrimaryDark">#0D1B2A</color>
-    <color name="colorAccent">#9B59B6</color>
-    <color name="colorBackground">#0D0D1A</color>
-    <color name="colorSurface">#1B263B</color>
-    <color name="ic_launcher_background">#0D0D1A</color>
+    <!-- Glassmorphism Primary Colors (LIGHT MODE) -->
+    <color name="colorPrimary">#0099CC</color> <!-- Darker Cyan for visibility on light bg -->
+    <color name="colorPrimaryDark">#007799</color>
+    <color name="colorAccent">#8E44AD</color>
+    <color name="colorBackground">#F2F5F8</color> <!-- Light Gray/Blueish White -->
+    <color name="colorSurface">#FFFFFF</color>     <!-- Pure White Surface -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+    
     <color name="fab_color_pressed">#007787</color>
     <color name="fab_color_shadow">#44000000</color>
+    
+    <!-- Button Backgrounds (Transparent/Glass) -->
     <color name="btn_default_light_normal">#00000000</color>
-    <color name="btn_default_light_pressed">#40ffffff</color>
+    <color name="btn_default_light_pressed">#20000000</color> <!-- Darker ripple for light mode -->
+    
     <color name="btn_send_normal">#02c754</color>
     <color name="btn_send_pressed">#006633</color>
     <color name="btn_default_shadow">#99000000</color>
-    <color name="btn_context_menu_normal">#ffffff</color>
-    <color name="btn_context_menu_pressed">#40000000</color>
-    <color name="btn_context_menu_text_red">#ffff0000</color>
+    
+    <color name="btn_context_menu_normal">#333333</color> <!-- Dark text for menu -->
+    <color name="btn_context_menu_pressed">#20000000</color>
+    <color name="btn_context_menu_text_red">#D50000</color>
+    
     <color name="text_like_counter">#2b5a83</color>
-    <color name="bg_comments">#ffffff</color>
+    <color name="bg_comments">#f0f0f0</color>
 
 
     <!-- open menu activity related-->
 
-    <color name="camera_load_animation_text">#FFFFFF</color>
-    <color name="camera_menu_background">#111111</color>
-    <color name="camera_menu_btn_ripple">#F29FF8B0</color>
-    <color name="camera_menu_btn_tint">#69E781</color>
-    <color name="clear_btn_text">#FFFFFF</color>
+    <color name="camera_load_animation_text">#333333</color> <!-- Dark text -->
+    <color name="camera_menu_background">#F0F0F0</color>    <!-- Light background -->
+    <color name="camera_menu_btn_ripple">#F200A526</color>
+    <color name="camera_menu_btn_tint">#009933</color>      <!-- Darker green -->
+    
+    <color name="clear_btn_text">#FFFFFF</color> <!-- Keep white if it's on a colored button -->
+    
     <color name="info_ripple_green">#AB76FF03</color>
     <color name="info_ripple_yellow">#FFFF8D</color>
     <color name="info_ripple_red">#EF5350</color>
     <color name="info_ripple_blue">#82B1FF</color>
+    
+    <!-- Info Backgrounds (Keep vibrant or slightly desaturate?) Keep vibrant for now -->
     <color name="info_background_green">#AB76FF03</color>
     <color name="info_background_blue">#303F9F</color>
     <color name="info_background_yellow">#A9FBEE76</color>
     <color name="info_background_red">#57D50000</color>
-    <color name="scale_btn_tint">#80D5D5D5</color>
-    <color name="scale_btn_ripple">#F2FFFFFF</color>
-    <color name="archive_item_inner_bcg">#11ffffff</color>
-    <color name="instructions_text_color">#ffb5bdeb</color>
+    
+    <color name="scale_btn_tint">#80555555</color> <!-- Dark Gray tint -->
+    <color name="scale_btn_ripple">#20000000</color>
+    
+    <color name="archive_item_inner_bcg">#11000000</color> <!-- Light dark overlay -->
+    <color name="instructions_text_color">#333333</color>  <!-- Dark Gray text -->
 
 </resources>

@@ -3,12 +3,16 @@ package com.huji.couchmirage
 import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.fragment.app.Fragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.huji.couchmirage.fragments.FavoritesFragment
 import com.huji.couchmirage.fragments.HomeFragment
 import com.huji.couchmirage.fragments.SettingsFragment
 
+import dagger.hilt.android.AndroidEntryPoint
+
+@AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
 
     companion object {
@@ -21,6 +25,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Apply saved dark mode preference before content view
+        applySavedDarkMode()
+
         setContentView(R.layout.activity_main_nav)
 
         try {
@@ -74,5 +82,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         tx.show(fragment).commit()
+    }
+
+    private fun applySavedDarkMode() {
+        com.huji.couchmirage.utils.ThemeManager.applyTheme(this)
     }
 }

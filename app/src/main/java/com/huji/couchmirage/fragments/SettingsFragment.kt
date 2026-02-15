@@ -13,6 +13,9 @@ import androidx.fragment.app.Fragment
 import com.huji.couchmirage.R
 import java.io.File
 
+import dagger.hilt.android.AndroidEntryPoint
+
+@AndroidEntryPoint
 class SettingsFragment : Fragment() {
 
     private val prefsName = "app_settings"
@@ -29,14 +32,16 @@ class SettingsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        applySavedDarkMode()
 
         setupSettingsItem(view.findViewById(R.id.setting_notifications), "Bildirishnomalar") {
             togglePreference(keyNotifications, "Bildirishnomalar")
         }
 
         setupSettingsItem(view.findViewById(R.id.setting_dark_mode), "Qorong'u rejim") {
-            togglePreference(keyDarkMode, "Qorong'u rejim")
+            com.huji.couchmirage.utils.ThemeManager.toggleTheme(requireContext())
+            val isDark = com.huji.couchmirage.utils.ThemeManager.isDarkMode(requireContext())
+            val status = if (isDark) "yoqildi" else "o'chirildi"
+            Toast.makeText(requireContext(), "Qorong'u rejim $status", Toast.LENGTH_SHORT).show()
         }
 
         setupSettingsItem(view.findViewById(R.id.setting_language), "Til: O'zbekcha") {
@@ -67,27 +72,15 @@ class SettingsFragment : Fragment() {
         val newValue = !prefs.getBoolean(key, false)
         prefs.edit().putBoolean(key, newValue).apply()
 
-        if (key == keyDarkMode) {
-            val mode = if (newValue) {
-                AppCompatDelegate.MODE_NIGHT_YES
-            } else {
-                AppCompatDelegate.MODE_NIGHT_NO
-            }
-            AppCompatDelegate.setDefaultNightMode(mode)
-        }
+        // Logic moved to ThemeManager for Dark Mode
+        // This function now only handles generic boolean prefs like notifications
+
 
         val status = if (newValue) "yoqildi" else "o'chirildi"
         Toast.makeText(requireContext(), "$title $status", Toast.LENGTH_SHORT).show()
     }
 
-    private fun applySavedDarkMode() {
-        val prefs = requireContext().getSharedPreferences(prefsName, 0)
-        val isDarkModeEnabled = prefs.getBoolean(keyDarkMode, false)
-        AppCompatDelegate.setDefaultNightMode(
-            if (isDarkModeEnabled) AppCompatDelegate.MODE_NIGHT_YES
-            else AppCompatDelegate.MODE_NIGHT_NO
-        )
-    }
+    // applySavedDarkMode removed - handled by MainActivity and ThemeManager
 
     private fun clearCaches() {
         val context = requireContext()
@@ -95,9 +88,6 @@ class SettingsFragment : Fragment() {
 
         context.cacheDir?.let { cacheDir ->
             deletedCount += deleteChildren(cacheDir)
-        }
-        File(context.cacheDir, "models").let { modelCache ->
-            deletedCount += deleteChildren(modelCache)
         }
 
         Toast.makeText(requireContext(), "Kesh tozalandi: $deletedCount fayl", Toast.LENGTH_SHORT).show()

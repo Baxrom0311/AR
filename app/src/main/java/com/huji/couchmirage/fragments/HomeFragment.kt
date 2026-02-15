@@ -11,16 +11,19 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.huji.couchmirage.R
 import com.huji.couchmirage.catalog.Category
 import com.huji.couchmirage.catalog.CategoryActivity
-import com.huji.couchmirage.catalog.FirebaseRepository
 
+import dagger.hilt.android.AndroidEntryPoint
+
+@AndroidEntryPoint
 class HomeFragment : Fragment() {
 
-    private val repository = FirebaseRepository.instance
+    private val viewModel: HomeViewModel by viewModels()
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var emptyContainer: LinearLayout
@@ -41,27 +44,39 @@ class HomeFragment : Fragment() {
         emptyContainer = view.findViewById(R.id.empty_container)
         
         recyclerView.layoutManager = GridLayoutManager(requireContext(), 2)
-        
-        loadCategories()
+        observeUiState()
+        viewModel.loadCategories()
     }
 
-    private fun loadCategories() {
-        progressBar.visibility = View.VISIBLE
-        
-        repository.getCategories(
-            onSuccess = { categories ->
-                progressBar.visibility = View.GONE
-                if (categories.isEmpty()) {
-                    emptyContainer.visibility = View.VISIBLE
-                } else {
-                    setupRecyclerView(categories)
+    private fun observeUiState() {
+        viewModel.uiState.observe(viewLifecycleOwner) { state ->
+            when (state) {
+                HomeUiState.Loading -> {
+                    progressBar.visibility = View.VISIBLE
+                    emptyContainer.visibility = View.GONE
+                    recyclerView.visibility = View.GONE
                 }
-            },
-            onError = { e ->
-                progressBar.visibility = View.GONE
-                Toast.makeText(requireContext(), "Xatolik: ${e.message}", Toast.LENGTH_SHORT).show()
+                HomeUiState.Empty -> {
+                    progressBar.visibility = View.GONE
+                    emptyContainer.visibility = View.VISIBLE
+                    recyclerView.visibility = View.GONE
+                }
+                is HomeUiState.Success -> {
+                    progressBar.visibility = View.GONE
+                    emptyContainer.visibility = View.GONE
+                    recyclerView.visibility = View.VISIBLE
+                    setupRecyclerView(state.categories)
+                }
+                is HomeUiState.Error -> {
+                    progressBar.visibility = View.GONE
+                    if (recyclerView.adapter == null) {
+                        emptyContainer.visibility = View.VISIBLE
+                        recyclerView.visibility = View.GONE
+                    }
+                    Toast.makeText(requireContext(), "Xatolik: ${state.message}", Toast.LENGTH_SHORT).show()
+                }
             }
-        )
+        }
     }
 
     private fun setupRecyclerView(categories: List<Category>) {

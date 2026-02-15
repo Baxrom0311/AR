@@ -10,17 +10,17 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.huji.couchmirage.R
 import com.huji.couchmirage.catalog.CelestialBody
-import com.huji.couchmirage.catalog.FirebaseRepository
 import com.huji.couchmirage.catalog.ItemDetailsActivity
 import com.huji.couchmirage.catalog.ItemRecyclerAdapter
 
 class PlanetsFragment : Fragment() {
 
-    private val repository = FirebaseRepository.instance
+    private val viewModel: PlanetsViewModel by viewModels()
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var emptyContainer: LinearLayout
@@ -45,28 +45,39 @@ class PlanetsFragment : Fragment() {
         emptyContainer = view.findViewById(R.id.empty_container)
         
         recyclerView.layoutManager = GridLayoutManager(requireContext(), 2)
-        
-        loadPlanets()
+        observeUiState()
+        viewModel.loadPlanets()
     }
 
-    private fun loadPlanets() {
-        progressBar.visibility = View.VISIBLE
-        
-        repository.getCelestialBodiesByType(
-            "planet",
-            onSuccess = { items ->
-                progressBar.visibility = View.GONE
-                if (items.isEmpty()) {
-                    emptyContainer.visibility = View.VISIBLE
-                } else {
-                    setupRecyclerView(items)
+    private fun observeUiState() {
+        viewModel.uiState.observe(viewLifecycleOwner) { state ->
+            when (state) {
+                PlanetsUiState.Loading -> {
+                    progressBar.visibility = View.VISIBLE
+                    emptyContainer.visibility = View.GONE
+                    recyclerView.visibility = View.GONE
                 }
-            },
-            onError = { e ->
-                progressBar.visibility = View.GONE
-                Toast.makeText(requireContext(), "Xatolik: ${e.message}", Toast.LENGTH_SHORT).show()
+                PlanetsUiState.Empty -> {
+                    progressBar.visibility = View.GONE
+                    emptyContainer.visibility = View.VISIBLE
+                    recyclerView.visibility = View.GONE
+                }
+                is PlanetsUiState.Success -> {
+                    progressBar.visibility = View.GONE
+                    emptyContainer.visibility = View.GONE
+                    recyclerView.visibility = View.VISIBLE
+                    setupRecyclerView(state.items)
+                }
+                is PlanetsUiState.Error -> {
+                    progressBar.visibility = View.GONE
+                    if (recyclerView.adapter == null) {
+                        emptyContainer.visibility = View.VISIBLE
+                        recyclerView.visibility = View.GONE
+                    }
+                    Toast.makeText(requireContext(), "Xatolik: ${state.message}", Toast.LENGTH_SHORT).show()
+                }
             }
-        )
+        }
     }
 
     private fun setupRecyclerView(items: List<CelestialBody>) {

@@ -18,9 +18,14 @@ import com.huji.couchmirage.catalog.ItemDetailsActivity
 import com.huji.couchmirage.catalog.ItemRecyclerAdapter
 import com.huji.couchmirage.utils.FavoritesManager
 
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+
+@AndroidEntryPoint
 class FavoritesFragment : Fragment() {
 
-    private val repository = FirebaseRepository.instance
+    @Inject
+    lateinit var repository: FirebaseRepository
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var emptyContainer: LinearLayout
@@ -41,8 +46,7 @@ class FavoritesFragment : Fragment() {
         emptyContainer = view.findViewById(R.id.empty_container)
         
         recyclerView.layoutManager = GridLayoutManager(requireContext(), 2)
-        
-        loadFavorites()
+        // loadFavorites() will be called in onResume()
     }
 
     override fun onResume() {

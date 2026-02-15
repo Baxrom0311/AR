@@ -17,9 +17,14 @@ import androidx.recyclerview.widget.RecyclerView
 import com.huji.couchmirage.catalog.CelestialBody
 import com.huji.couchmirage.catalog.FirebaseRepository
 
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+
+@AndroidEntryPoint
 class ARSelectionActivity : AppCompatActivity() {
 
-    private val repository = FirebaseRepository.instance
+    @Inject
+    lateinit var repository: FirebaseRepository
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var btnCompare: Button
@@ -67,7 +72,7 @@ class ARSelectionActivity : AppCompatActivity() {
         repository.getAllCelestialBodies(
             onSuccess = { items ->
                 progressBar.visibility = View.GONE
-                allItems = items.filter { it.radius > 0 } // Only items with valid radius
+                allItems = items // Show all items (radius may be 0 for some categories)
                 setupAdapter()
             },
             onError = { e ->

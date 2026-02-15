@@ -10,17 +10,17 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.huji.couchmirage.R
 import com.huji.couchmirage.catalog.CelestialBody
-import com.huji.couchmirage.catalog.FirebaseRepository
 import com.huji.couchmirage.catalog.ItemDetailsActivity
 import com.huji.couchmirage.catalog.ItemRecyclerAdapter
 
 class OthersFragment : Fragment() {
 
-    private val repository = FirebaseRepository.instance
+    private val viewModel: OthersViewModel by viewModels()
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var emptyContainer: LinearLayout
@@ -43,7 +43,11 @@ class OthersFragment : Fragment() {
         val btnFavorites = view.findViewById<android.widget.Button>(R.id.btn_favorites)
         btnFavorites.visibility = View.VISIBLE
         btnFavorites.setOnClickListener {
-            startActivity(Intent(requireContext(), com.huji.couchmirage.catalog.FavoritesActivity::class.java))
+            // Navigate to Favorites tab in bottom navigation
+            activity?.let { act ->
+                val bottomNav = act.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottom_nav)
+                bottomNav?.selectedItemId = R.id.nav_favorites
+            }
         }
         
         recyclerView = view.findViewById(R.id.recycler_view)
@@ -51,28 +55,39 @@ class OthersFragment : Fragment() {
         emptyContainer = view.findViewById(R.id.empty_container)
         
         recyclerView.layoutManager = GridLayoutManager(requireContext(), 2)
-        
-        loadOthers()
+        observeUiState()
+        viewModel.loadOthers()
     }
 
-    private fun loadOthers() {
-        progressBar.visibility = View.VISIBLE
-        
-        repository.getCelestialBodiesByType(
-            "other",
-            onSuccess = { items ->
-                progressBar.visibility = View.GONE
-                if (items.isEmpty()) {
-                    emptyContainer.visibility = View.VISIBLE
-                } else {
-                    setupRecyclerView(items)
+    private fun observeUiState() {
+        viewModel.uiState.observe(viewLifecycleOwner) { state ->
+            when (state) {
+                OthersUiState.Loading -> {
+                    progressBar.visibility = View.VISIBLE
+                    emptyContainer.visibility = View.GONE
+                    recyclerView.visibility = View.GONE
                 }
-            },
-            onError = { e ->
-                progressBar.visibility = View.GONE
-                Toast.makeText(requireContext(), "Xatolik: ${e.message}", Toast.LENGTH_SHORT).show()
+                OthersUiState.Empty -> {
+                    progressBar.visibility = View.GONE
+                    emptyContainer.visibility = View.VISIBLE
+                    recyclerView.visibility = View.GONE
+                }
+                is OthersUiState.Success -> {
+                    progressBar.visibility = View.GONE
+                    emptyContainer.visibility = View.GONE
+                    recyclerView.visibility = View.VISIBLE
+                    setupRecyclerView(state.items)
+                }
+                is OthersUiState.Error -> {
+                    progressBar.visibility = View.GONE
+                    if (recyclerView.adapter == null) {
+                        emptyContainer.visibility = View.VISIBLE
+                        recyclerView.visibility = View.GONE
+                    }
+                    Toast.makeText(requireContext(), "Xatolik: ${state.message}", Toast.LENGTH_SHORT).show()
+                }
             }
-        )
+        }
     }
 
     private fun setupRecyclerView(items: List<CelestialBody>) {

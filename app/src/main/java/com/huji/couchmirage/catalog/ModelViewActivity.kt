@@ -10,26 +10,25 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.google.ar.sceneform.Node
-import com.google.ar.sceneform.SceneView
-import com.google.ar.sceneform.math.Quaternion
-import com.google.ar.sceneform.math.Vector3
-import com.google.ar.sceneform.rendering.Color
-import com.google.ar.sceneform.rendering.Light
-import com.google.ar.sceneform.rendering.ModelRenderable
-import com.google.ar.sceneform.ux.FootprintSelectionVisualizer
-import com.google.ar.sceneform.ux.TransformationSystem
-import com.google.ar.sceneform.ux.TransformableNode
+import androidx.lifecycle.lifecycleScope
 import com.huji.couchmirage.R
+import com.huji.couchmirage.utils.ARScaleHelper
+import io.github.sceneview.SceneView
+import io.github.sceneview.math.Position
+import io.github.sceneview.math.Rotation
+import io.github.sceneview.math.Scale
+import io.github.sceneview.node.ModelNode
+import kotlinx.coroutines.launch
 import java.io.File
 
+import dagger.hilt.android.AndroidEntryPoint
+
+@AndroidEntryPoint
 class ModelViewActivity : AppCompatActivity() {
 
     private val TAG = "ModelViewActivity"
     private lateinit var sceneView: SceneView
-    private var modelRenderable: ModelRenderable? = null
-    private lateinit var transformationSystem: TransformationSystem
-    private var modelNode: TransformableNode? = null
+    private var modelNode: ModelNode? = null
     
     // UI Controls
     private lateinit var scaleSeekBar: SeekBar
@@ -73,9 +72,6 @@ class ModelViewActivity : AppCompatActivity() {
         // Prevent touch events on controls panel from passing to SceneView
         findViewById<android.view.View>(R.id.controls_panel).setOnTouchListener { _, _ -> true }
 
-        // Setup TransformationSystem for gestures (Drag, Pinch, Rotate)
-        transformationSystem = TransformationSystem(resources.displayMetrics, FootprintSelectionVisualizer())
-
         val file = getModelFileExtra()
         if (file != null && file.exists()) {
             Log.d(TAG, "Loading model from: ${file.absolutePath}")
@@ -88,23 +84,34 @@ class ModelViewActivity : AppCompatActivity() {
         }
         
         setupCamera()
-        setupLighting()
         setupGestureDetectors()
         setupTouchListener()
     }
 
     private fun getModelFileExtra(): File? {
-        val cacheSubDir = File(cacheDir, "models")
         val modelFilename = intent.getStringExtra(ItemDetailsActivity.EXTRA_MODEL_FILENAME)
-            ?.substringAfterLast('/')
-            ?.substringAfterLast('\\')
-
-        if (!modelFilename.isNullOrBlank()) {
-            val candidate = File(cacheSubDir, modelFilename)
-            if (candidate.exists() && candidate.isFile) {
-                return candidate
-            }
+        
+        if (modelFilename.isNullOrBlank()) {
+             Log.w(TAG, "No model filename provided in intent")
+             return null
         }
+
+        // 1. Try treating it as a full absolute path
+        val asFile = File(modelFilename)
+        if (asFile.exists() && asFile.isFile) {
+             return asFile
+        }
+
+        // 2. Try simple filename in cache (legacy behavior)
+        val simpleName = File(modelFilename).name
+        val cacheSubDir = File(cacheDir, "models")
+        val candidate = File(cacheSubDir, simpleName)
+        
+        if (candidate.exists() && candidate.isFile) {
+            return candidate
+        }
+        
+        Log.e(TAG, "Could not resolve model file: $modelFilename")
         return null
     }
     
@@ -152,8 +159,6 @@ class ModelViewActivity : AppCompatActivity() {
         
         scaleSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                // Only update multiplier if change comes from user touch
-                // Otherwise (from code), the multiplier is already correct
                 if (fromUser) {
                     Log.d(TAG, "SeekBar onProgressChanged: $progress (User)")
                     val multiplier = if (progress <= 100) {
@@ -171,17 +176,13 @@ class ModelViewActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
         
-        // Quick scale buttons - set Multipliers
         findViewById<Button>(R.id.btn_scale_small).setOnClickListener {
-            Log.d(TAG, "Button: Small Clicked")
             setMultiplier(0.5f)
         }
         findViewById<Button>(R.id.btn_scale_medium).setOnClickListener {
-            Log.d(TAG, "Button: Medium Clicked")
-            setMultiplier(1.0f) // Reset to smart scale
+            setMultiplier(1.0f) 
         }
         findViewById<Button>(R.id.btn_scale_large).setOnClickListener {
-            Log.d(TAG, "Button: Large Clicked")
             setMultiplier(2.0f)
         }
     }
@@ -199,7 +200,6 @@ class ModelViewActivity : AppCompatActivity() {
         Log.d(TAG, "setMultiplier: $multiplier")
         scaleMultiplier = multiplier
         
-        // Reverse map multiplier to progress
         val progress = if (multiplier <= 1.0f) {
             ((multiplier - 0.1f) / 0.9f * 100).toInt()
         } else {
@@ -211,56 +211,27 @@ class ModelViewActivity : AppCompatActivity() {
     }
     
     private fun applyScale() {
-        Log.d(TAG, "applyScale: base=$baseScale, mult=$scaleMultiplier, node=${modelNode!=null}")
         if (modelNode != null) {
             val finalScale = baseScale * scaleMultiplier
-            modelNode?.localScale = Vector3(finalScale, finalScale, finalScale)
+            // Update scale using SceneView's Scale (Vector3 alias)
+            modelNode?.scale = Scale(finalScale, finalScale, finalScale)
             Log.d(TAG, "Applied Scale: $finalScale")
         }
     }
     
     private fun setupCamera() {
-        // Position camera to look at the center
-        val camera = sceneView.scene.camera
-        camera.localPosition = Vector3(0f, 0f, 1.5f) // Move camera closer (1.5m) to make 1m object look large
-        camera.localRotation = Quaternion.identity() // Look straight ahead
-    }
-    
-    private fun setupLighting() {
-        try {
-            // Add a directional light
-            val lightNode = Node()
-            lightNode.localPosition = Vector3(1f, 2f, 1f)
-            
-            val directionalLight = Light.builder(Light.Type.DIRECTIONAL)
-                .setColor(Color(1f, 1f, 1f))
-                .setIntensity(1000f)
-                .setShadowCastingEnabled(true)
-                .build()
-            lightNode.light = directionalLight
-            sceneView.scene.addChild(lightNode)
-            
-            // Add ambient/point light
-            val ambientNode = Node()
-            ambientNode.localPosition = Vector3(-1f, 1f, 1f)
-            val pointLight = Light.builder(Light.Type.POINT)
-                .setColor(Color(1f, 1f, 1f))
-                .setIntensity(500f)
-                .build()
-            ambientNode.light = pointLight
-            sceneView.scene.addChild(ambientNode)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error setting up lighting", e)
-        }
+        // Move camera closer (1.5m) to make 1m object look large
+        sceneView.cameraNode.position = Position(0f, 0f, 2.0f)
+        sceneView.cameraNode.rotation = Rotation(0f, 0f, 0f)
     }
     
     private fun setupTouchListener() {
-        sceneView.scene.addOnPeekTouchListener { _, motionEvent ->
-            // Pass event to ScaleGestureDetector (Pinch Zoom)
+        // SceneView handles touches differently, but we can attach a listener to the view
+        sceneView.setOnTouchListener { _, motionEvent ->
+             // Pass event to ScaleGestureDetector (Pinch Zoom)
             scaleGestureDetector.onTouchEvent(motionEvent)
             
             // Manual rotation handling for single touch (Scroll/Drag)
-            // Only rotate if NOT scaling using gestures and pointer count is 1
             if (motionEvent.pointerCount == 1 && !scaleGestureDetector.isInProgress) {
                 when (motionEvent.action) {
                     MotionEvent.ACTION_DOWN -> {
@@ -283,14 +254,8 @@ class ModelViewActivity : AppCompatActivity() {
                                 // Clamp vertical rotation to prevent flipping upside down
                                 currentElevation = currentElevation.coerceIn(-85f, 85f)
                                 
-                                // Create rotation from angles: Y (Azimuth) first, then X (Elevation)
-                                val rotY = Quaternion.axisAngle(Vector3.up(), currentAzimuth)
-                                val rotX = Quaternion.axisAngle(Vector3.right(), currentElevation)
-                                
-                                // Apply rotation: Order matters! RotY * RotX applies X rotation in Y's frame? 
-                                // We want intrinsic rotation or extrinsic?
-                                // Standard Orbit: Rotate Y (global), then Rotate X (local)
-                                node.localRotation = Quaternion.multiply(rotY, rotX)
+                                // Apply rotation (Euler angles in degrees)
+                                node.rotation = Rotation(currentElevation, currentAzimuth, 0f)
                             }
                             
                             previousX = motionEvent.x
@@ -299,154 +264,59 @@ class ModelViewActivity : AppCompatActivity() {
                     }
                 }
             }
+            true // Consume event
         }
     }
 
     private fun loadModel(file: File) {
-        // Determine source type based on file extension
-        val sourceType = if (file.extension.equals("gltf", ignoreCase = true)) {
-            com.google.ar.sceneform.assets.RenderableSource.SourceType.GLTF2
-        } else {
-            com.google.ar.sceneform.assets.RenderableSource.SourceType.GLB
-        }
-        
-        val renderableSource = com.google.ar.sceneform.assets.RenderableSource.builder()
-            .setSource(this, Uri.fromFile(file), sourceType)
-            .setScale(1.0f) // Load at original scale for accurate measurement
-            .setRecenterMode(com.google.ar.sceneform.assets.RenderableSource.RecenterMode.ROOT)
-            .build()
+          lifecycleScope.launch {
+              try {
+                  if (modelNode != null) {
+                      sceneView.removeChildNode(modelNode!!)
+                      modelNode = null
+                  }
 
-        ModelRenderable.builder()
-            .setSource(this, renderableSource)
-            .setRegistryId(file.absolutePath)
-            .build()
-            .thenAccept { renderable ->
-                modelRenderable = renderable
-                addNodeToScene(renderable)
-                Toast.makeText(this, "Model yuklandi ✓", Toast.LENGTH_SHORT).show()
-            }
-            .exceptionally { throwable ->
-                Log.e(TAG, "Unable to load model", throwable)
-                runOnUiThread {
-                    Toast.makeText(this, "Xato: ${throwable.message}", Toast.LENGTH_LONG).show()
-                }
-                null
-            }
-    }
-
-    private fun addNodeToScene(renderable: ModelRenderable) {
-        val scene = sceneView.scene
-        
-        // Root Pivot Node (The one we rotate/scale)
-        // Positioned at World (0,0,0)
-        val pivotNode = TransformableNode(transformationSystem)
-        pivotNode.localPosition = Vector3(0f, 0f, 0f)
-        pivotNode.scaleController.isEnabled = false
-        pivotNode.getTranslationController().isEnabled = false
-        pivotNode.rotationController.isEnabled = false
-        
-        // Geometry Node (Holds the model)
-        // Offset to align model center with Pivot
-        val geometryNode = Node()
-        geometryNode.setParent(pivotNode)
-        geometryNode.renderable = renderable
-        
-        // Assign Pivot globally for interactions
-        modelNode = pivotNode
-        
-        // SMART SCALING: Fit model comfortably into view
-        // 1. Get model's actual size (bounding box)
-        val collisionShape = renderable.collisionShape
-        var maxExtent = 0f
-        
-        if (collisionShape is com.google.ar.sceneform.collision.Box) {
-            val extents = collisionShape.extents
-            maxExtent = maxOf(extents.x, extents.y, extents.z)
-        } else if (collisionShape is com.google.ar.sceneform.collision.Sphere) {
-            maxExtent = collisionShape.radius * 2.0f
-        }
-        
-        // 2. Calculate scale factor & Center offset
-        val targetSize = adaptiveTargetModelSize()
-        var centerOffset = Vector3.zero()
-        
-        if (collisionShape is com.google.ar.sceneform.collision.Box) {
-            centerOffset = collisionShape.center
-        } else if (collisionShape is com.google.ar.sceneform.collision.Sphere) {
-            centerOffset = collisionShape.center
-        }
-        
-        // Store as baseScale (safe autoscale)
-        baseScale = computeSafeBaseScale(maxExtent, targetSize)
-        
-        // Reset multiplier
-        scaleMultiplier = 1.0f
-        
-        Log.d(TAG, "Smart Scaling: MaxExtent=$maxExtent, BaseScale=$baseScale, Center=$centerOffset")
-        
-        // Offset geometry so its center is at Pivot (0,0,0)
-        // Note: We do NOT scale the offset here, because it's local to the child node.
-        // The parent (Pivot) will be scaled, which scales the child's position automatically.
-        geometryNode.localPosition = Vector3(
-            -centerOffset.x,
-            -centerOffset.y,
-            -centerOffset.z
-        )
-        
-        // Apply calculated scale to Pivot
-        applyScale()
-        
-        // Update seekbar
-        scaleSeekBar.progress = 100
-        updateScaleText(100)
-        
-        // Add Pivot to scene
-        scene.addChild(pivotNode)
-        
-        // Select node for transformation (optional)
-        transformationSystem.selectNode(pivotNode)
-    }
-
-    private fun computeSafeBaseScale(maxExtent: Float, targetSize: Float): Float {
-        if (!maxExtent.isFinite() || maxExtent <= INVALID_EXTENT_THRESHOLD) {
-            return FALLBACK_BASE_SCALE
-        }
-        return (targetSize / maxExtent).coerceIn(MIN_BASE_SCALE, MAX_BASE_SCALE)
-    }
-
-    private fun adaptiveTargetModelSize(): Float {
-        val factor = screenScaleFactor()
-        return (TARGET_MODEL_SIZE_M * factor).coerceIn(
-            TARGET_MODEL_SIZE_M,
-            MAX_ADAPTIVE_TARGET_MODEL_SIZE_M
-        )
-    }
-
-    private fun screenScaleFactor(): Float {
-        return when (resources.configuration.smallestScreenWidthDp) {
-            in 960..Int.MAX_VALUE -> 1.35f
-            in 840..959 -> 1.25f
-            in 720..839 -> 1.18f
-            in 600..719 -> 1.12f
-            else -> 1.0f
-        }
+                  // Auto-scale to fit roughly 0.8m visual size
+                  val instance = sceneView.modelLoader.createModelInstance(file)
+                  if (instance != null) {
+                      modelNode = ModelNode(
+                          modelInstance = instance,
+                          scaleToUnits = TARGET_MODEL_SIZE_M 
+                      ).apply {
+                          // Center the model
+                          position = Position(0f, 0f, 0f)
+                          rotation = Rotation(0f, 0f, 0f)
+                      }
+                      
+                      // Base scale is 1.0 because scaleToUnits handles the initial sizing
+                      baseScale = 1.0f 
+                      // Apply initial multiplier (1.0)
+                      applyScale()
+                      
+                      sceneView.addChildNode(modelNode!!)
+                      Toast.makeText(this@ModelViewActivity, "Model yuklandi ✓", Toast.LENGTH_SHORT).show()
+                  } else {
+                       Toast.makeText(this@ModelViewActivity, "Model yuklanmadi (null)", Toast.LENGTH_SHORT).show()
+                  }
+                  
+              } catch (e: Exception) {
+                  Log.e(TAG, "Unable to load model", e)
+                  Toast.makeText(this@ModelViewActivity, "Xato: ${e.message}", Toast.LENGTH_LONG).show()
+              }
+          }
     }
 
     override fun onResume() {
         super.onResume()
-        if (!::sceneView.isInitialized) return
-        try {
-            sceneView.resume()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error resuming SceneView", e)
-            Toast.makeText(this, "Error starting 3D view: ${e.message}", Toast.LENGTH_SHORT).show()
+        if (::sceneView.isInitialized) {
+            // sceneView.resume()
         }
     }
 
     override fun onPause() {
         super.onPause()
         if (::sceneView.isInitialized) {
-            sceneView.pause()
+            // sceneView.pause()
         }
     }
 
@@ -454,7 +324,7 @@ class ModelViewActivity : AppCompatActivity() {
         super.onDestroy()
         if (::sceneView.isInitialized) {
             try {
-                sceneView.pause()
+                sceneView.destroy()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in onDestroy", e)
             }

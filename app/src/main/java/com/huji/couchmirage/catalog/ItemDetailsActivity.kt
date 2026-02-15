@@ -15,19 +15,20 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.google.ar.sceneform.Node
-import com.google.ar.sceneform.SceneView
-import com.google.ar.sceneform.math.Quaternion
-import com.google.ar.sceneform.math.Vector3
-import com.google.ar.sceneform.rendering.Color
-import com.google.ar.sceneform.rendering.Light
-import com.google.ar.sceneform.rendering.ModelRenderable
 import com.google.firebase.storage.FirebaseStorage
 import com.huji.couchmirage.OpenCameraActivity
 import com.huji.couchmirage.R
 import com.huji.couchmirage.utils.ModelCacheHelper
+import io.github.sceneview.SceneView
+import io.github.sceneview.math.Position
+import io.github.sceneview.math.Rotation
+import io.github.sceneview.node.ModelNode
 import java.io.File
 
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+
+@AndroidEntryPoint
 class ItemDetailsActivity : AppCompatActivity() {
 
     companion object {
@@ -37,7 +38,8 @@ class ItemDetailsActivity : AppCompatActivity() {
     }
 
     private val TAG = "ItemDetailsActivity"
-    private val repository = FirebaseRepository.instance
+    @Inject
+    lateinit var repository: FirebaseRepository
     private var selectedItem: CelestialBody? = null
     
     private lateinit var loadingLayout: ConstraintLayout
@@ -49,7 +51,7 @@ class ItemDetailsActivity : AppCompatActivity() {
     // 3D Preview
     private lateinit var sceneView: SceneView
     private lateinit var modelLoading: ProgressBar
-    private var modelNode: Node? = null
+    private var modelNode: ModelNode? = null
     private val rotationHandler = Handler(Looper.getMainLooper())
     private var rotationAngle = 0f
     private var isRotationRunning = false
@@ -59,7 +61,8 @@ class ItemDetailsActivity : AppCompatActivity() {
             modelNode?.let { node ->
                 rotationAngle += 1f
                 if (rotationAngle >= 360f) rotationAngle = 0f
-                node.localRotation = Quaternion.axisAngle(Vector3.up(), rotationAngle)
+                // Rotate around Y axis
+                node.rotation = Rotation(0f, rotationAngle, 0f)
             }
             rotationHandler.postDelayed(this, 16) // ~60fps
         }
@@ -75,6 +78,10 @@ class ItemDetailsActivity : AppCompatActivity() {
         arLabel = findViewById(R.id.ar_label) 
         gotoStoreButton = findViewById(R.id.goto_store_button)
         
+        findViewById<View>(R.id.back_button).setOnClickListener {
+            finish()
+        }
+        
         // 3D Preview setup
         sceneView = findViewById(R.id.model_scene_view)
         modelLoading = findViewById(R.id.model_loading)
@@ -89,8 +96,8 @@ class ItemDetailsActivity : AppCompatActivity() {
         if (preloadedItem != null) {
             selectedItem = preloadedItem
             updateUI(preloadedItem)
-            if (preloadedItem.modelUrl.isNotEmpty()) {
-                load3DPreview(preloadedItem.modelUrl)
+            if (!preloadedItem.modelUrl.isNullOrEmpty()) {
+                load3DPreview(preloadedItem.modelUrl!!)
             }
         } else {
             val itemId = intent.getStringExtra(EXTRA_ITEM_ID)
@@ -103,37 +110,6 @@ class ItemDetailsActivity : AppCompatActivity() {
         }
         
         setupButtons()
-        setup3DScene()
-    }
-    
-    private fun setup3DScene() {
-        // Setup camera
-        val camera = sceneView.scene.camera
-        camera.localPosition = Vector3(0f, 0f, 1.5f)
-        camera.localRotation = Quaternion.identity()
-        
-        // Add lighting
-        try {
-            val lightNode = Node()
-            lightNode.localPosition = Vector3(1f, 2f, 1f)
-            val light = Light.builder(Light.Type.DIRECTIONAL)
-                .setColor(Color(1f, 1f, 1f))
-                .setIntensity(1000f)
-                .build()
-            lightNode.light = light
-            sceneView.scene.addChild(lightNode)
-            
-            val ambientNode = Node()
-            ambientNode.localPosition = Vector3(-1f, 0f, 1f)
-            val pointLight = Light.builder(Light.Type.POINT)
-                .setColor(Color(1f, 1f, 1f))
-                .setIntensity(500f)
-                .build()
-            ambientNode.light = pointLight
-            sceneView.scene.addChild(ambientNode)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error setting up lighting", e)
-        }
     }
     
     private fun loadItemDetails(itemId: String) {
@@ -143,8 +119,8 @@ class ItemDetailsActivity : AppCompatActivity() {
                 selectedItem = item
                 updateUI(item)
                 // Load 3D model for preview
-                if (item.modelUrl.isNotEmpty()) {
-                    load3DPreview(item.modelUrl)
+                if (!item.modelUrl.isNullOrEmpty()) {
+                    load3DPreview(item.modelUrl!!)
                 }
             },
             onError = { e ->
@@ -194,43 +170,28 @@ class ItemDetailsActivity : AppCompatActivity() {
     }
     
     private fun loadModelIntoScene(file: File) {
-        val sourceType = if (file.extension.equals("gltf", ignoreCase = true)) {
-            com.google.ar.sceneform.assets.RenderableSource.SourceType.GLTF2
-        } else {
-            com.google.ar.sceneform.assets.RenderableSource.SourceType.GLB
-        }
-        
-        val renderableSource = com.google.ar.sceneform.assets.RenderableSource.builder()
-            .setSource(this, Uri.fromFile(file), sourceType)
-            .setScale(0.01f) // Small scale for preview
-            .setRecenterMode(com.google.ar.sceneform.assets.RenderableSource.RecenterMode.ROOT)
-            .build()
+        try {
+            if (modelNode != null) {
+                sceneView.removeChildNode(modelNode!!)
+                modelNode = null
+            }
 
-        ModelRenderable.builder()
-            .setSource(this, renderableSource)
-            .setRegistryId(file.absolutePath + "_preview")
-            .build()
-            .thenAccept { renderable ->
-                modelLoading.visibility = View.GONE
-                addModelToScene(renderable)
+            modelNode = ModelNode(
+                modelInstance = sceneView.modelLoader.createModelInstance(file = file),
+                scaleToUnits = 0.8f // Fit to 0.8 meters
+            ).apply {
+                position = Position(0f, -0.4f, -1.0f) // Push back and center
+                rotation = Rotation(0f, 0f, 0f)
             }
-            .exceptionally { throwable ->
-                modelLoading.visibility = View.GONE
-                Log.e(TAG, "Unable to load model for preview", throwable)
-                null
-            }
-    }
-    
-    private fun addModelToScene(renderable: ModelRenderable) {
-        val node = Node()
-        node.renderable = renderable
-        node.localPosition = Vector3(0f, -0.1f, -0.5f)
-        node.localScale = Vector3(0.15f, 0.15f, 0.15f)
-        
-        sceneView.scene.addChild(node)
-        modelNode = node
-        
-        startPreviewRotation()
+            
+            sceneView.addChildNode(modelNode!!)
+            modelLoading.visibility = View.GONE
+            startPreviewRotation()
+            
+        } catch (e: Exception) {
+            modelLoading.visibility = View.GONE
+            Log.e(TAG, "Unable to load model for preview", e)
+        }
     }
     
     private fun updateUI(item: CelestialBody) {
@@ -239,13 +200,19 @@ class ItemDetailsActivity : AppCompatActivity() {
         
         val factsText = buildString {
             append("Radius: ${item.radius} km\n")
-            append("Mass: ${item.mass}\n")
-            append("Temperature: ${item.temperature}\n")
-            if (item.moons != null) append("Moons: ${item.moons}\n")
+            append("Mass: ${item.mass ?: "N/A"}\n")
+            append("Temperature: ${item.temperature ?: "N/A"}\n")
+            if (item.moons > 0) append("Moons: ${item.moons}\n")
+            if (item.facts.isNotEmpty()) {
+                append("\n")
+                item.facts.forEach { fact ->
+                    append("• $fact\n")
+                }
+            }
         }
         findViewById<TextView>(R.id.item_facts_text).text = factsText
         
-        gotoStoreButton.text = "More Info (Wiki)"
+        gotoStoreButton.text = getString(R.string.more_info_wiki)
         gotoStoreButton.setOnClickListener {
              val url = "https://en.wikipedia.org/wiki/${item.name}"
              startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -257,20 +224,20 @@ class ItemDetailsActivity : AppCompatActivity() {
     private fun setupButtons() {
         arButton.setOnClickListener {
             selectedItem?.let { item ->
-                if (item.modelUrl.isNotEmpty()) {
-                    downloadAndOpen(item.modelUrl, isAR = true)
+                if (!item.modelUrl.isNullOrEmpty()) {
+                    downloadAndOpen(item.modelUrl!!, isAR = true)
                 } else {
-                    Toast.makeText(this, "No 3D model available", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, R.string.no_3d_model, Toast.LENGTH_SHORT).show()
                 }
             }
         }
         
         view3DButton.setOnClickListener {
             selectedItem?.let { item ->
-                if (item.modelUrl.isNotEmpty()) {
-                    downloadAndOpen(item.modelUrl, isAR = false)
+                if (!item.modelUrl.isNullOrEmpty()) {
+                    downloadAndOpen(item.modelUrl!!, isAR = false)
                 } else {
-                    Toast.makeText(this, "No 3D model available", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, R.string.no_3d_model, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -388,13 +355,9 @@ class ItemDetailsActivity : AppCompatActivity() {
     
     override fun onResume() {
         super.onResume()
-        if (!::sceneView.isInitialized) return
-
-        try {
-            sceneView.resume()
+        if (::sceneView.isInitialized) {
+            // sceneView.resume()
             startPreviewRotation()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error resuming SceneView", e)
         }
     }
     
@@ -402,7 +365,7 @@ class ItemDetailsActivity : AppCompatActivity() {
         super.onPause()
         stopPreviewRotation()
         if (::sceneView.isInitialized) {
-            sceneView.pause()
+            // sceneView.pause()
         }
     }
     
@@ -411,7 +374,7 @@ class ItemDetailsActivity : AppCompatActivity() {
         stopPreviewRotation()
         if (::sceneView.isInitialized) {
             try {
-                sceneView.pause()
+                sceneView.destroy()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in onDestroy", e)
             }

@@ -12,10 +12,15 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.huji.couchmirage.R
 
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+
+@AndroidEntryPoint
 class CatalogFrontActivity : AppCompatActivity() {
 
     private val TAG = "CatalogFrontActivity"
-    private val repository = FirebaseRepository.instance
+    @Inject
+    lateinit var repository: FirebaseRepository
     
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar

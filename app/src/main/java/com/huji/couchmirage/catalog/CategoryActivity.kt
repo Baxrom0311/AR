@@ -12,10 +12,15 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.huji.couchmirage.R
 
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+
+@AndroidEntryPoint
 class CategoryActivity : AppCompatActivity() {
 
     private val TAG = "CategoryActivity"
-    private val repository = FirebaseRepository.instance
+    @Inject
+    lateinit var repository: FirebaseRepository
     
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
@@ -41,6 +46,10 @@ class CategoryActivity : AppCompatActivity() {
         titleTextView = findViewById(R.id.category_title)
         
         titleTextView.text = categoryName ?: "Kategoriya"
+        
+        findViewById<View>(R.id.btn_back).setOnClickListener {
+            finish()
+        }
         
         // RecyclerView
         recyclerView.layoutManager = GridLayoutManager(this, 2)

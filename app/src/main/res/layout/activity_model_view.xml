@@ -7,7 +7,7 @@
     android:background="@drawable/bg_gradient_cosmic"
     tools:context=".catalog.ModelViewActivity">
 
-    <com.google.ar.sceneform.SceneView
+    <io.github.sceneview.SceneView
         android:id="@+id/sceneView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
