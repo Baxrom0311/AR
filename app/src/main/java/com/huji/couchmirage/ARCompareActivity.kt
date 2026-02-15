@@ -34,6 +34,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
+import com.google.android.filament.EntityManager
+import com.google.android.filament.LightManager
 
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -164,6 +166,9 @@ class ARCompareActivity : AppCompatActivity() {
             config.depthMode = Config.DepthMode.AUTOMATIC
             config.focusMode = Config.FocusMode.AUTO
         }
+        
+        // Add manual studio lighting to ensure metallic models (Earth) are visible
+        setupStudioLighting()
         
         sceneView.setOnTouchListener { _, event ->
              if (event.action == MotionEvent.ACTION_UP) {
@@ -673,6 +678,52 @@ class ARCompareActivity : AppCompatActivity() {
         }
 
         override fun getItemCount() = bodies.size
+    }
+
+    private fun setupStudioLighting() {
+        try {
+            // 1. Key Light (Main Sun) - Bright, from top-right-front
+            val keyLightEntity = EntityManager.get().create()
+            LightManager.Builder(LightManager.Type.DIRECTIONAL)
+                .color(1.0f, 1.0f, 1.0f)
+                .intensity(110000.0f) // Very bright
+                .direction(-1.0f, -1.0f, -1.0f) // Down and forward-right
+                .castShadows(true)
+                .build(sceneView.engine, keyLightEntity)
+            
+            // Add to scene
+            sceneView.addChildNode(io.github.sceneview.node.Node(sceneView.engine, keyLightEntity).apply {
+                name = "KeyLight"
+            })
+
+            // 2. Fill Light (Softener) - Softer, from left
+            val fillLightEntity = EntityManager.get().create()
+            LightManager.Builder(LightManager.Type.DIRECTIONAL)
+                .color(0.9f, 0.9f, 1.0f) // Slightly cool
+                .intensity(50000.0f) 
+                .direction(1.0f, -0.5f, -0.5f) // From left-side
+                .castShadows(false)
+                .build(sceneView.engine, fillLightEntity)
+            sceneView.addChildNode(io.github.sceneview.node.Node(sceneView.engine, fillLightEntity).apply{
+                name = "FillLight"
+            })
+
+            // 3. Back Light (Rim) - Separates model from background
+            val backLightEntity = EntityManager.get().create()
+            LightManager.Builder(LightManager.Type.DIRECTIONAL)
+                .color(1.0f, 0.9f, 0.8f) // Slightly warm
+                .intensity(60000.0f)
+                .direction(0.0f, -1.0f, 1.0f) // From behind/top
+                .castShadows(false)
+                .build(sceneView.engine, backLightEntity)
+            sceneView.addChildNode(io.github.sceneview.node.Node(sceneView.engine, backLightEntity).apply{
+                name = "BackLight"
+            })
+            
+            Log.d(TAG, "Studio lighting setup complete")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to setup studio lighting", e)
+        }
     }
 
     override fun onDestroy() {

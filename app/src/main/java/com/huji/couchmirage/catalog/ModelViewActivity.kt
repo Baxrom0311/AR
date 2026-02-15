@@ -12,7 +12,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.huji.couchmirage.R
-import com.huji.couchmirage.utils.ARScaleHelper
 import io.github.sceneview.SceneView
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
@@ -20,6 +19,8 @@ import io.github.sceneview.math.Scale
 import io.github.sceneview.node.ModelNode
 import kotlinx.coroutines.launch
 import java.io.File
+import com.google.android.filament.EntityManager
+import com.google.android.filament.LightManager
 
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -52,8 +53,8 @@ class ModelViewActivity : AppCompatActivity() {
     private lateinit var scaleGestureDetector: android.view.ScaleGestureDetector
 
     // Conservative auto-fit values for mixed-origin assets (NASA and others)
-    private val TARGET_MODEL_SIZE_M = 0.8f
-    private val MAX_ADAPTIVE_TARGET_MODEL_SIZE_M = 1.1f
+    private val TARGET_MODEL_SIZE_M = 0.5f // Reduced from 0.8f to prevent "inside camera" issue
+    private val MAX_ADAPTIVE_TARGET_MODEL_SIZE_M = 0.8f // Reduced cap
     private val MIN_BASE_SCALE = 0.0005f
     private val MAX_BASE_SCALE = 0.8f
     private val FALLBACK_BASE_SCALE = 0.03f
@@ -64,6 +65,68 @@ class ModelViewActivity : AppCompatActivity() {
         setContentView(R.layout.activity_model_view)
 
         sceneView = findViewById(R.id.sceneView)
+        
+        // Try to register lifecycle observer safely
+        try {
+            if (sceneView is androidx.lifecycle.LifecycleObserver) {
+                lifecycle.addObserver(sceneView as androidx.lifecycle.LifecycleObserver)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register lifecycle observer", e)
+        }
+
+        // Configure Lighting for Natural Look
+        lifecycleScope.launch {
+            try {
+                // Remove previous lights if any
+                sceneView.childNodes.filterIsInstance<io.github.sceneview.node.LightNode>().forEach {
+                    sceneView.removeChildNode(it)
+                }
+
+                // --- STUDIO LIGHTING SETUP (Key, Fill, Back) ---
+                // Since we lack a reliable HDR environment, we use multiple directional lights 
+                // to ensure the model is visible from all angles.
+
+                // 1. Key Light (Main Sun) - Bright, from top-right-front
+                val keyLightEntity = EntityManager.get().create()
+                LightManager.Builder(LightManager.Type.DIRECTIONAL)
+                    .color(1.0f, 1.0f, 1.0f)
+                    .intensity(110000.0f) // Very bright
+                    .direction(-1.0f, -1.0f, -1.0f) // Down and forward-right
+                    .castShadows(true)
+                    .build(sceneView.engine, keyLightEntity)
+                sceneView.addChildNode(io.github.sceneview.node.Node(sceneView.engine, keyLightEntity))
+
+                // 2. Fill Light (Softener) - Softer, from left
+                val fillLightEntity = EntityManager.get().create()
+                LightManager.Builder(LightManager.Type.DIRECTIONAL)
+                    .color(0.9f, 0.9f, 1.0f) // Slightly cool
+                    .intensity(50000.0f) 
+                    .direction(1.0f, -0.5f, -0.5f) // From left-side
+                    .castShadows(false)
+                    .build(sceneView.engine, fillLightEntity)
+                sceneView.addChildNode(io.github.sceneview.node.Node(sceneView.engine, fillLightEntity))
+
+                // 3. Back Light (Rim) - Separates model from background
+                val backLightEntity = EntityManager.get().create()
+                LightManager.Builder(LightManager.Type.DIRECTIONAL)
+                    .color(1.0f, 0.9f, 0.8f) // Slightly warm
+                    .intensity(60000.0f)
+                    .direction(0.0f, -1.0f, 1.0f) // From behind/top
+                    .castShadows(false)
+                    .build(sceneView.engine, backLightEntity)
+                sceneView.addChildNode(io.github.sceneview.node.Node(sceneView.engine, backLightEntity))
+
+
+                // Add an environment light (IndirectLight)
+                // Since we don't have an HDR file easily accessible, we use a simple fallback
+                // or rely on SceneView's default if available.
+                // For now, we just ensure the main light is strong enough.
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to configure lighting", e)
+            }
+        }
         
         // Setup UI controls
         setupScaleControls()
@@ -281,16 +344,20 @@ class ModelViewActivity : AppCompatActivity() {
                   if (instance != null) {
                       modelNode = ModelNode(
                           modelInstance = instance,
-                          scaleToUnits = TARGET_MODEL_SIZE_M 
+                          scaleToUnits = TARGET_MODEL_SIZE_M,
+                          centerOrigin = Position(0.0f, 0.0f, 0.0f)
                       ).apply {
-                          // Center the model
+                          // Center the model explicitly if needed (though centerOrigin handles mesh offset)
                           position = Position(0f, 0f, 0f)
                           rotation = Rotation(0f, 0f, 0f)
                       }
                       
-                      // Base scale is 1.0 because scaleToUnits handles the initial sizing
-                      baseScale = 1.0f 
-                      // Apply initial multiplier (1.0)
+                      // Critical Fix: Capture the auto-calculated scale as our base!
+                      // If model was huge (1000m), scaleToUnits made it tiny (0.0005).
+                      // We must use THAT as base, not 1.0f.
+                      baseScale = modelNode?.scale?.x ?: 1.0f
+                      
+                      // Apply initial multiplier (1.0x relative to auto-fit size)
                       applyScale()
                       
                       sceneView.addChildNode(modelNode!!)
@@ -308,16 +375,12 @@ class ModelViewActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::sceneView.isInitialized) {
-            // sceneView.resume()
-        }
+        // sceneView.resume() // Not available in SceneView 2.x
     }
 
     override fun onPause() {
         super.onPause()
-        if (::sceneView.isInitialized) {
-            // sceneView.pause()
-        }
+        // sceneView.pause() // Not available in SceneView 2.x
     }
 
     override fun onDestroy() {
